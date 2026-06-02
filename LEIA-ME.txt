@@ -1,0 +1,23 @@
+Estrutura:
+prt_welfare/
+  main.py
+  app/
+  docs/
+
+Coloca dentro da pasta docs:
+  cooking.png
+  star.png
+  cake.png
+  cookingtree-dots.png
+  editar.png
+  impressora.png (opcional; se não existir usa ícone de texto)
+
+Instalar dependência:
+  pip install -r requirements.txt
+
+Correr:
+  python main.py
+
+Credenciais mestre:
+  NIM: admin
+  Password: Bangui123#

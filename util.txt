@@ -1,0 +1,5 @@
+Compilar:
+
+pip install -r requirements.txt
+
+pyinstaller --noconfirm --clean --windowed --icon=docs\favicon.ico --name PRT_Welfare main.py
