@@ -89,6 +89,7 @@ def init_db():
         "Escrita 3": "Gestão Welfare Individual",
         "Leitura 1": "Leitura",
         "Leitura 2": "Leitura",
+        "Gestão Férias": "Pessoal/Gestão Férias",
     }
     for antigo, novo in acessos_migracao.items():
         cur.execute("SELECT utilizador_id FROM utilizadores_acessos WHERE tipo_acesso = ?", (antigo,))
@@ -260,7 +261,7 @@ def get_utilizador_acessos(utilizador_id):
                 WHEN 'Gestão Ementa' THEN 3
                 WHEN 'Gestão Welfare Individual' THEN 4
                 WHEN 'Leitura' THEN 5
-                WHEN 'Gestão Férias' THEN 6
+                WHEN 'Pessoal/Gestão Férias' THEN 6
                 ELSE 99
             END
     """, (utilizador_id,))

@@ -58,6 +58,7 @@ class PRTWelfareApp:
         self.lbl_total_welfare = None
         self.lbl_total_welfare_icone = None
         self.btn_trancar_mes = None
+        self.total_welfare_atual = 0
 
         self.carregar_imagens()
         self.criar_layout()
@@ -138,6 +139,9 @@ class PRTWelfareApp:
 
     def pode_gerir_ferias(self):
         return bool(self.acessos() & ACESSOS_GEREM_FERIAS) or self.is_admin()
+
+    def pode_ver_pessoal(self):
+        return self.pode_gerir_ferias()
 
 
     def carregar_imagens(self):
@@ -321,20 +325,21 @@ class PRTWelfareApp:
                 command=self.abrir_gestao_ferias
             ).pack(side="right", padx=(0, 8))
 
-        self.frame_total_welfare = tk.Frame(filtros, bg="white")
-        self.frame_total_welfare.pack(side="right", padx=(10, 18))
-
-        self.lbl_total_welfare_icone = tk.Label(self.frame_total_welfare, bg="white")
-        self.lbl_total_welfare_icone.pack(side="left", padx=(0, 6))
-
-        self.lbl_total_welfare = tk.Label(
-            self.frame_total_welfare,
-            text="Total Welfare: 0",
-            bg="white",
-            fg=COR_PRINCIPAL,
-            font=("Arial", 11, "bold")
-        )
-        self.lbl_total_welfare.pack(side="left")
+        if self.pode_ver_pessoal():
+            tk.Button(
+                filtros,
+                text=t("personnel"),
+                bg="#d8f1f4",
+                fg=COR_PRINCIPAL,
+                activebackground="#cce9ed",
+                activeforeground=COR_PRINCIPAL,
+                font=("Arial", 11, "bold"),
+                relief="solid",
+                bd=1,
+                padx=18,
+                pady=5,
+                command=self.abrir_pessoal
+            ).pack(side="right", padx=(0, 8))
 
         self.frame_calendario = tk.Frame(self.area, bg="white", padx=0, pady=0)
         self.frame_calendario.pack(fill="both", expand=True)
@@ -523,6 +528,8 @@ class PRTWelfareApp:
     def carregar_calendario(self):
         for widget in self.frame_calendario.winfo_children():
             widget.destroy()
+        self.lbl_total_welfare = None
+        self.lbl_total_welfare_icone = None
 
         dados_mes = get_welfares_mes(self.ano_atual, self.mes_atual)
         day_offs_mes = get_day_offs_mes(self.ano_atual, self.mes_atual)
@@ -592,6 +599,7 @@ class PRTWelfareApp:
 
     def atualizar_total_welfare_mes(self, dados_mes):
         total = sum(len(welfares) for welfares in dados_mes.values())
+        self.total_welfare_atual = total
 
         if self.lbl_total_welfare:
             self.lbl_total_welfare.config(text=f"Total Welfare: {total}")
@@ -641,6 +649,22 @@ class PRTWelfareApp:
                 command=self.alternar_trancar_mes
             )
             self.btn_trancar_mes.pack(side="right", padx=(0, 18), pady=15)
+
+        self.frame_total_welfare = tk.Frame(notas, bg="white")
+        self.frame_total_welfare.pack(side="right", padx=(0, 18), pady=15)
+
+        self.lbl_total_welfare_icone = tk.Label(self.frame_total_welfare, bg="white")
+        self.lbl_total_welfare_icone.pack(side="left", padx=(0, 6))
+
+        self.lbl_total_welfare = tk.Label(
+            self.frame_total_welfare,
+            text=f"Total Welfare: {getattr(self, 'total_welfare_atual', 0)}",
+            bg="white",
+            fg=COR_PRINCIPAL,
+            font=("Arial", 11, "bold")
+        )
+        self.lbl_total_welfare.pack(side="left")
+        self.atualizar_total_welfare_mes(get_welfares_mes(self.ano_atual, self.mes_atual))
 
 
     def alternar_trancar_mes(self):
@@ -970,6 +994,11 @@ class PRTWelfareApp:
         if self.trazer_janela_tipo("administracao"):
             return
         AdminWindow(self)
+
+    def abrir_pessoal(self):
+        if self.trazer_janela_tipo("pessoal"):
+            return
+        AdminWindow(self, modo_pessoal=True)
 
 
     def formatar_data_pt(self, data_str):

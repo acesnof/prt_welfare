@@ -148,7 +148,7 @@ TIPOS_ACESSO = [
     "Gestão Ementa",
     "Gestão Welfare Individual",
     "Leitura",
-    "Gestão Férias",
+    "Pessoal/Gestão Férias",
 ]
 
 TIPOS_WELFARE = {
@@ -165,7 +165,7 @@ TIPOS_ACESSO_DESCRICAO = {
     "Gestão Ementa": "Adiciona a ementa ao plano mensal de Welfare.",
     "Gestão Welfare Individual": "Gere os Welfares Individuais do contingente.",
     "Leitura": "Acesso em modo de Leitura/Consulta.",
-    "Gestão Férias": "Gere as férias do pessoal do contingente.",
+    "Pessoal/Gestão Férias": "Gere as férias do pessoal do contingente.",
 }
 
 ACESSOS_EDITAM_WELFARES_MENSAIS = {"Administrador", "Gestão Welfare Mensal"}
@@ -177,4 +177,4 @@ ACESSOS_VEEM_BOTAO_EDITAR_WELFARES_MENSAIS = {"Administrador", "Gestão Welfare 
 
 ACESSOS_EDITAM_WELFARES_INDIVIDUAIS = {"Administrador", "Gestão Welfare Individual"}
 ACESSOS_VEEM_WELFARES_INDIVIDUAIS = {"Administrador", "Gestão Welfare Individual", "Leitura"}
-ACESSOS_GEREM_FERIAS = {"Administrador", "Gestão Férias"}
+ACESSOS_GEREM_FERIAS = {"Administrador", "Pessoal/Gestão Férias"}

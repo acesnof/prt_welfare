@@ -36,6 +36,7 @@ from app.reports.service_note_docx import gerar_service_note, formatar_data_mili
 from app.reports.request_docx import gerar_request_welfare_meals, gerar_request_welfare_meals_hoto
 from app.reports.individual_pdf import gerar_pdf_welfare_individual
 
+
 COR_COHESION = "#f3fbf4"
 COR_RESUMO = "#f7f7f7"
 COR_INATIVO = "#d9d9d9"
@@ -130,6 +131,9 @@ class WelfareIndividualWindow:
 
         return True
 
+    def pode_exportar_semanas(self):
+        return self.is_responsavel_welfare() or self.app.is_admin() or "Gestão Welfare Individual" in self.app.acessos()
+
     def criar_layout(self):
         topo = tk.Frame(self.janela, bg=COR_PRINCIPAL, height=58)
         topo.pack(fill="x")
@@ -219,6 +223,7 @@ class WelfareIndividualWindow:
 
         # Botões de exportação/documentos movidos para o footer.
 
+
         texto_modo = t("click_cell_mode") if self.pode_editar() else t("view_mode")
         self.lbl_modo = tk.Label(
             filtros,
@@ -247,6 +252,8 @@ class WelfareIndividualWindow:
         self.btn_pequeno_almoco.pack(side="right", padx=(8, 18))
 
         # Botão Distribuição XFA movido para o footer.
+
+
 
         self.atualizar_titulo_modo()
 
@@ -699,7 +706,7 @@ class WelfareIndividualWindow:
             fill=COR_PRINCIPAL,
             font=("Arial", 9, "bold")
         )
-        if self.is_responsavel_welfare() or self.app.is_admin():
+        if self.pode_exportar_semanas():
             self.canvas.create_text(
                 10,
                 y_semana + 22,
@@ -1261,19 +1268,15 @@ class WelfareIndividualWindow:
                 chave = (user["id"], data_str, REFEICAO_PEQUENO_ALMOCO)
                 if chave in self.alteracoes_pendentes:
                     fill = COR_ALTERACAO
-
                 elif not ativo:
                     fill = bg_base
-
                 elif ferias_data:
                     fill = COR_FERIAS
-
                 elif marcado:
                     # Vai ao DFAC
                     especial = info["especial"]
                     pode_hover = ativo and not ferias_data and not especial
                     fill = COR_HOVER if (self.hover_row_idx == row_idx and pode_hover) else bg_base
-
                 else:
                     # Não vai ao DFAC
                     fill = COR_VERMELHO
@@ -1329,6 +1332,7 @@ class WelfareIndividualWindow:
                         except ValueError:
                             return None
         return None
+
 
     def _dados_para_pdf_welfare_individual(self):
         dias_total = self.dias_mes()
@@ -1498,6 +1502,7 @@ class WelfareIndividualWindow:
         self.janela.focus_force()
         return escolha["valor"]
 
+
     def imprimir_tabela(self):
         if self.alteracoes_pendentes:
             messagebox.showwarning(
@@ -1542,6 +1547,7 @@ class WelfareIndividualWindow:
         messagebox.showinfo(t("saved"), t("pdf_saved"), parent=self.janela)
         self.janela.lift()
         self.janela.focus_force()
+
 
     def _totais_semana_para_export(self, inicio_semana):
         totais = []
@@ -1658,6 +1664,7 @@ class WelfareIndividualWindow:
             return
         XfaDistributionWindow(self)
 
+
     def _dados_service_note(self):
         """Prepara dados para a Service Note.
 
@@ -1730,6 +1737,7 @@ class WelfareIndividualWindow:
 
         individual_cohesion = "\n".join(linhas_individuais)
         return dates_cohesion, individual_cohesion
+
 
     def _identificacao_posto_nome_sobrenome(self, user):
         if not user:
@@ -2136,7 +2144,7 @@ class WelfareIndividualWindow:
 
         inicio_semana_str, numero_semana = self._semana_click_tag()
         if inicio_semana_str:
-            if self.is_responsavel_welfare():
+            if self.pode_exportar_semanas():
                 self.exportar_semana(inicio_semana_str, numero_semana)
             return
 
@@ -2505,8 +2513,7 @@ class XfaDistributionWindow:
                     raise ValueError
             except ValueError:
                 messagebox.showwarning("Validação", f"Quantidade inválida para a nota {denom}.", parent=self.janela)
-                self.janela.lift();
-                self.janela.focus_force()
+                self.janela.lift(); self.janela.focus_force()
                 return None
             stock[denom] = val
         return stock
@@ -2522,8 +2529,7 @@ class XfaDistributionWindow:
                         raise ValueError
                 except ValueError:
                     messagebox.showwarning("Validação", f"Valor inválido para {self._formatar_identificacao(linha_original)}.", parent=self.janela)
-                    self.janela.lift();
-                    self.janela.focus_force()
+                    self.janela.lift(); self.janela.focus_force()
                     return None
                 if valor <= 0:
                     continue
@@ -2605,8 +2611,7 @@ class XfaDistributionWindow:
         total_stock = sum(d * q for d, q in stock.items())
         if total_stock < total_reembolsos:
             messagebox.showwarning("Notas insuficientes", f"Valor disponível insuficiente. Disponível: {total_stock:,} | Necessário: {total_reembolsos:,}".replace(",", "."), parent=self.janela)
-            self.janela.lift();
-            self.janela.focus_force()
+            self.janela.lift(); self.janela.focus_force()
             return
 
         for item in self.tabela.get_children():
@@ -2627,9 +2632,8 @@ class XfaDistributionWindow:
             ]
             self.tabela.insert("", "end", values=valores)
 
-        sobra_txt = " | ".join(f"{d}: {stock_atual.get(d, 0)}" for d in self.DENOMINACOES)
+        sobra_txt = " | ".join(f"{d}: {stock_atual.get(d,0)}" for d in self.DENOMINACOES)
         self.lbl_info.config(text=f"Total necessário: {self.individual.formatar_valor(total_reembolsos)} XAF\nSobra: {sobra_txt}")
         if falhas:
             messagebox.showwarning("Distribuição incompleta", "Não foi possível acertar exatamente para:\n" + "\n".join(falhas), parent=self.janela)
-            self.janela.lift();
-            self.janela.focus_force()
+            self.janela.lift(); self.janela.focus_force()

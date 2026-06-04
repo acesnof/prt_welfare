@@ -69,8 +69,9 @@ def avisar_parent(janela, tipo, titulo, mensagem):
 
 
 class AdminWindow:
-    def __init__(self, app):
+    def __init__(self, app, modo_pessoal=False):
         self.app = app
+        self.modo_pessoal = modo_pessoal
         self.mostrar_todos_utilizadores = False
         self.btn_mostrar_todos = None
         self.lbl_filtro_utilizadores = None
@@ -80,9 +81,9 @@ class AdminWindow:
 
         self.janela = tk.Toplevel(app.root)
         aplicar_icone(self.janela)
-        self.app.registar_janela(self.janela, "administracao")
+        self.app.registar_janela(self.janela, "pessoal" if self.modo_pessoal else "administracao")
 
-        self.janela.title(t("admin_title"))
+        self.janela.title(t("personnel") if self.modo_pessoal else t("admin_title"))
         self.janela.geometry("1100x650")
         self.janela.minsize(1000, 600)
         self.janela.configure(bg="white")
@@ -100,7 +101,7 @@ class AdminWindow:
 
         tk.Label(
             topo,
-            text=t("admin_title"),
+            text=t("personnel") if self.modo_pessoal else t("admin_title"),
             bg=COR_PRINCIPAL,
             fg="white",
             font=("Arial", 17, "bold")
@@ -149,86 +150,87 @@ class AdminWindow:
         )
         self.lbl_filtro_utilizadores.pack(side="left", padx=(12, 0))
 
-        tk.Button(
-            barra_acoes,
-            text=t("welfare_value"),
-            bg=COR_PRINCIPAL,
-            fg="white",
-            font=("Arial", 10, "bold"),
-            relief="flat",
-            padx=14,
-            pady=6,
-            command=self.abrir_valor_welfare
-        ).pack(side="left", padx=(12, 0))
+        if not self.modo_pessoal:
+            tk.Button(
+                barra_acoes,
+                text=t("welfare_value"),
+                bg=COR_PRINCIPAL,
+                fg="white",
+                font=("Arial", 10, "bold"),
+                relief="flat",
+                padx=14,
+                pady=6,
+                command=self.abrir_valor_welfare
+            ).pack(side="left", padx=(12, 0))
 
-        self.lbl_valor_welfare = tk.Label(
-            barra_acoes,
-            text=self.texto_valor_welfare(),
-            bg="white",
-            fg=COR_PRINCIPAL,
-            font=("Arial", 10, "bold")
-        )
-        self.lbl_valor_welfare.pack(side="left", padx=(10, 0))
+            self.lbl_valor_welfare = tk.Label(
+                barra_acoes,
+                text=self.texto_valor_welfare(),
+                bg="white",
+                fg=COR_PRINCIPAL,
+                font=("Arial", 10, "bold")
+            )
+            self.lbl_valor_welfare.pack(side="left", padx=(10, 0))
 
-        tk.Button(
-            barra_acoes,
-            text=t("cos_name"),
-            bg="white",
-            fg=COR_PRINCIPAL,
-            activebackground="white",
-            activeforeground=COR_PRINCIPAL,
-            font=("Arial", 10, "bold"),
-            relief="solid",
-            bd=1,
-            padx=14,
-            pady=5,
-            command=self.abrir_nome_cos
-        ).pack(side="left", padx=(10, 0))
+            tk.Button(
+                barra_acoes,
+                text=t("cos_name"),
+                bg="white",
+                fg=COR_PRINCIPAL,
+                activebackground="white",
+                activeforeground=COR_PRINCIPAL,
+                font=("Arial", 10, "bold"),
+                relief="solid",
+                bd=1,
+                padx=14,
+                pady=5,
+                command=self.abrir_nome_cos
+            ).pack(side="left", padx=(10, 0))
 
-        tk.Button(
-            barra_acoes,
-            text=t("days_off"),
-            bg="white",
-            fg=COR_PRINCIPAL,
-            activebackground="white",
-            activeforeground=COR_PRINCIPAL,
-            font=("Arial", 10, "bold"),
-            relief="solid",
-            bd=1,
-            padx=14,
-            pady=5,
-            command=self.abrir_day_offs
-        ).pack(side="left", padx=(10, 0))
+            tk.Button(
+                barra_acoes,
+                text=t("days_off"),
+                bg="white",
+                fg=COR_PRINCIPAL,
+                activebackground="white",
+                activeforeground=COR_PRINCIPAL,
+                font=("Arial", 10, "bold"),
+                relief="solid",
+                bd=1,
+                padx=14,
+                pady=5,
+                command=self.abrir_day_offs
+            ).pack(side="left", padx=(10, 0))
 
-        tk.Button(
-            barra_acoes,
-            text=t("week_start"),
-            bg="white",
-            fg=COR_PRINCIPAL,
-            activebackground="white",
-            activeforeground=COR_PRINCIPAL,
-            font=("Arial", 10, "bold"),
-            relief="solid",
-            bd=1,
-            padx=14,
-            pady=5,
-            command=self.abrir_inicio_semana
-        ).pack(side="left", padx=(10, 0))
+            tk.Button(
+                barra_acoes,
+                text=t("week_start"),
+                bg="white",
+                fg=COR_PRINCIPAL,
+                activebackground="white",
+                activeforeground=COR_PRINCIPAL,
+                font=("Arial", 10, "bold"),
+                relief="solid",
+                bd=1,
+                padx=14,
+                pady=5,
+                command=self.abrir_inicio_semana
+            ).pack(side="left", padx=(10, 0))
 
-        tk.Button(
-            barra_acoes,
-            text=t("language"),
-            bg="white",
-            fg=COR_PRINCIPAL,
-            activebackground="white",
-            activeforeground=COR_PRINCIPAL,
-            font=("Arial", 10, "bold"),
-            relief="solid",
-            bd=1,
-            padx=14,
-            pady=5,
-            command=self.abrir_lingua
-        ).pack(side="left", padx=(10, 0))
+            tk.Button(
+                barra_acoes,
+                text=t("language"),
+                bg="white",
+                fg=COR_PRINCIPAL,
+                activebackground="white",
+                activeforeground=COR_PRINCIPAL,
+                font=("Arial", 10, "bold"),
+                relief="solid",
+                bd=1,
+                padx=14,
+                pady=5,
+                command=self.abrir_lingua
+            ).pack(side="left", padx=(10, 0))
 
         colunas = (
             "nim",
@@ -848,43 +850,48 @@ class AdminWindow:
         frame = tk.Frame(corpo, bg="white")
         frame.pack(side="left", fill="both", expand=True)
 
-        lateral = tk.Frame(
-            corpo,
-            bg="#f7fbfb",
-            highlightthickness=1,
-            highlightbackground="#d5e6e6",
-            padx=14,
-            pady=12,
-            width=315
-        )
-        lateral.pack(side="right", fill="y", padx=(22, 0))
-        lateral.pack_propagate(False)
+        if not self.modo_pessoal:
+            lateral = tk.Frame(
+                corpo,
+                bg="#f7fbfb",
+                highlightthickness=1,
+                highlightbackground="#d5e6e6",
+                padx=14,
+                pady=12,
+                width=315
+            )
+            lateral.pack(side="right", fill="y", padx=(22, 0))
+            lateral.pack_propagate(False)
 
-        tk.Label(
-            lateral,
-            text="Tipos de Acesso",
-            bg="#f7fbfb",
-            fg=COR_PRINCIPAL,
-            font=("Arial", 12, "bold")
-        ).pack(anchor="w", pady=(0, 10))
-
-        for tipo in TIPOS_ACESSO:
             tk.Label(
                 lateral,
-                text=tipo,
+                text="Tipos de Acesso",
                 bg="#f7fbfb",
-                fg="#111111",
-                font=("Arial", 9, "bold")
-            ).pack(anchor="w", pady=(6, 0))
-            tk.Label(
-                lateral,
-                text=TIPOS_ACESSO_DESCRICAO.get(tipo, ""),
-                bg="#f7fbfb",
-                fg="#333333",
-                font=("Arial", 8),
-                wraplength=280,
-                justify="left"
-            ).pack(anchor="w")
+                fg=COR_PRINCIPAL,
+                font=("Arial", 12, "bold")
+            ).pack(anchor="w", pady=(0, 10))
+
+            for tipo in TIPOS_ACESSO:
+                tk.Label(
+                    lateral,
+                    text=tipo,
+                    bg="#f7fbfb",
+                    fg="#111111",
+                    font=("Arial", 9, "bold")
+                ).pack(anchor="w", pady=(6, 0))
+                tk.Label(
+                    lateral,
+                    text=TIPOS_ACESSO_DESCRICAO.get(tipo, ""),
+                    bg="#f7fbfb",
+                    fg="#333333",
+                    font=("Arial", 8),
+                    wraplength=280,
+                    justify="left"
+                ).pack(anchor="w")
+
+
+        else:
+            lateral = None
 
         def label(text):
             tk.Label(frame, text=text, bg="white", font=("Arial", 9, "bold")).pack(anchor="w")
@@ -983,19 +990,32 @@ class AdminWindow:
         frame_acessos.pack(anchor="w", pady=(2, 8), fill="x")
 
         acesso_vars = {}
-        for idx, tipo in enumerate(TIPOS_ACESSO):
-            var = tk.BooleanVar(value=tipo in acessos_atuais)
-            acesso_vars[tipo] = var
-            chk = tk.Checkbutton(
+        if self.modo_pessoal:
+            texto_acessos = ", ".join(sorted(acessos_atuais)) if editar else "Leitura"
+            tk.Label(
                 frame_acessos,
-                text=tipo,
-                variable=var,
+                text=texto_acessos + "  (apenas o Administrador altera Tipos de Acesso)",
                 bg="white",
-                activebackground="white",
-                font=("Arial", 9),
+                fg="#555555",
+                font=("Arial", 9, "bold"),
                 anchor="w"
-            )
-            chk.grid(row=idx // 2, column=idx % 2, sticky="w", padx=(0, 20), pady=1)
+            ).pack(anchor="w")
+            for tipo in TIPOS_ACESSO:
+                acesso_vars[tipo] = tk.BooleanVar(value=(tipo in acessos_atuais if editar else tipo == "Leitura"))
+        else:
+            for idx, tipo in enumerate(TIPOS_ACESSO):
+                var = tk.BooleanVar(value=tipo in acessos_atuais)
+                acesso_vars[tipo] = var
+                chk = tk.Checkbutton(
+                    frame_acessos,
+                    text=tipo,
+                    variable=var,
+                    bg="white",
+                    activebackground="white",
+                    font=("Arial", 9),
+                    anchor="w"
+                )
+                chk.grid(row=idx // 2, column=idx % 2, sticky="w", padx=(0, 20), pady=1)
 
         label("Password:")
         entry_password = tk.Entry(frame, width=45, show="*")
@@ -1048,7 +1068,12 @@ class AdminWindow:
             sobrenome = entry_sobrenome.get().strip()
             data_chegada = entry_chegada.get()
             data_partida = entry_partida.get()
-            acessos_selecionados = [tipo for tipo, var in acesso_vars.items() if var.get()]
+            if self.modo_pessoal:
+                acessos_selecionados = list(get_utilizador_acessos(user["id"])) if editar else ["Leitura"]
+                if not acessos_selecionados:
+                    acessos_selecionados = ["Leitura"]
+            else:
+                acessos_selecionados = [tipo for tipo, var in acesso_vars.items() if var.get()]
             tipo_acesso = ", ".join(acessos_selecionados)
             password = entry_password.get()
             password2 = entry_password2.get()
