@@ -38,7 +38,7 @@ def _criar_workbook_fallback():
     return wb
 
 
-def gerar_meals_request_weekly(docs_dir, destino, totais_semana):
+def gerar_meals_request_weekly(docs_dir, destino, totais_semana, numero_semana=None):
     """
     Preenche o modelo docs/meals_request_weekly(.xlsx) com totais semanais.
 
@@ -58,6 +58,16 @@ def gerar_meals_request_weekly(docs_dir, destino, totais_semana):
     else:
         wb = _criar_workbook_fallback()
         ws = wb.active
+
+    # Semana e ano em D3
+    if totais_semana:
+        primeira_data = totais_semana[0]["data"]
+        ano_semana = primeira_data.year
+
+        if numero_semana is None:
+            numero_semana = primeira_data.isocalendar()[1]
+
+        ws["D3"] = f"Week {numero_semana} {ano_semana}"
 
     for idx, info in enumerate(totais_semana[:7]):
         data_ref = info["data"]

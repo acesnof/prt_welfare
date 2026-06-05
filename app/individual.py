@@ -1601,7 +1601,7 @@ class WelfareIndividualWindow:
             return
 
         try:
-            gerar_meals_request_weekly(DOCS_DIR, destino, totais)
+            gerar_meals_request_weekly(DOCS_DIR, destino, totais, numero_semana)
         except Exception as exc:
             messagebox.showerror(t("error"), str(exc), parent=self.janela)
             self.janela.lift()
