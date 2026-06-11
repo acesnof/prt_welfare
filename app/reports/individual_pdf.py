@@ -8,7 +8,7 @@ COR_PRINCIPAL = colors.HexColor("#0b4b52")
 COR_LINHA = colors.HexColor("#b7b7b7")
 COR_WEEKEND = colors.HexColor("#d8f1f4")
 COR_FERIAS = colors.HexColor("#78dafa")
-COR_INATIVO = colors.HexColor("#d9d9d9")
+COR_INATIVO = colors.HexColor("#888888")
 COR_BRANCO = colors.white
 COR_VERMELHO = colors.HexColor("#b90f12")
 COR_TOTAL = colors.HexColor("#e8f4f6")
@@ -84,19 +84,20 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
         titulo_h = 8 * mm
         header_h1 = 5.0 * mm
         header_h2 = 4.0 * mm
-        total_h = 5.0 * mm
+        total_h = 6.2 * mm
 
         # Impressão em 2 páginas:
-        # - Página 1: identificação + dias 1-15, sem Total Welfares/Reembolso.
-        # - Página 2: dias restantes + Total Welfares/Reembolso, sem Identificação.
+        # - Página 1: identificação + primeiros dias.
+        # - Página 2: restantes dias, sem Identificação, para poder encostar as folhas.
+        # As colunas Total Welfares/Reembolso foram removidas da impressão.
         mostrar_identificacao = not (total_paginas > 1 and indice_pagina == 2)
-        mostrar_resumo = not (total_paginas > 1 and indice_pagina == 1)
+        mostrar_resumo = False
 
-        # Colunas laterais estreitas para libertar espaço às células PA/AL/JA.
-        ident_w = 30 * mm if mostrar_identificacao else 0
-        total_welfares_w = 12 * mm if mostrar_resumo else 0
-        reimbursement_w = 17 * mm if mostrar_resumo else 0
-        resumo_w = total_welfares_w + reimbursement_w
+        # A identificação fica mais larga para os nomes caberem numa só linha.
+        ident_w = 50 * mm if mostrar_identificacao else 0
+        total_welfares_w = 0
+        reimbursement_w = 0
+        resumo_w = 0
 
         dias_w = usable_w - ident_w - resumo_w
         cell_w = dias_w / max(1, len(dias_pagina) * 3)
@@ -108,8 +109,30 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
         row_h = min(cell_w, available_rows_h / n_rows)
         row_h = max(2.35 * mm, row_h)
 
-        font_row = max(2.8, min(5.5, row_h / mm * 1.10))
-        font_ident = max(2.9, min(5.2, row_h / mm * 1.05))
+        if len(dias_pagina) <= 7:
+            # Impressão de uma semana: aproveitar melhor a folha e tornar o texto mais legível.
+            row_h = min(available_rows_h / n_rows, cell_w * 1.35)
+            row_h = max(4.2 * mm, row_h)
+            font_row = max(5.0, min(8.8, row_h / mm * 1.18))
+            font_ident = max(5.0, min(8.4, row_h / mm * 1.10))
+            font_dia = 8.6
+            font_semana = 6.6
+            font_ref = 6.2
+            font_total = 7.2
+        else:
+            font_row = max(2.9, min(5.8, row_h / mm * 1.10))
+            font_ident = max(3.0, min(5.6, row_h / mm * 1.05))
+            font_dia = 5.8 if len(dias_pagina) <= 15 else 5.2
+            font_semana = 4.6 if len(dias_pagina) <= 15 else 4.1
+            font_ref = 4.7 if len(dias_pagina) <= 15 else 3.8
+            font_total = 5.7 if len(dias_pagina) <= 15 else 4.8
+
+        def _fit_font_size(texto, largura, tamanho_base, minimo=2.4, fonte="Helvetica"):
+            texto = str(texto or "")
+            tamanho = float(tamanho_base)
+            while tamanho > minimo and c.stringWidth(texto, fonte, tamanho) > largura:
+                tamanho -= 0.2
+            return max(minimo, tamanho)
 
         x0 = margem
         y_top = page_h - margem
@@ -132,7 +155,7 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
             c.setFillColor(COR_PRINCIPAL)
             c.rect(x0, y - header_h1 - header_h2, ident_w, header_h1 + header_h2, fill=1, stroke=1)
             c.setFillColor(colors.white)
-            c.setFont("Helvetica", 5.3)
+            c.setFont("Helvetica", 6.0 if len(dias_pagina) <= 7 else 5.5)
             c.drawCentredString(x0 + ident_w / 2, y - (header_h1 + header_h2) / 2 - 1.5, "IDENTIFICAÇÃO")
 
         # Cabeçalhos dias
@@ -145,36 +168,22 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
             c.setFillColor(fill)
             c.rect(x, y - header_h1, cell_w * 3, header_h1, fill=1, stroke=1)
             c.setFillColor(colors.white if not especial else COR_PRINCIPAL)
-            c.setFont("Helvetica", 4.6 if len(dias_pagina) <= 15 else 4.3)
-            c.drawCentredString(x + 1.5 * cell_w, y - 3.1 * mm, str(dia))
-            c.setFont("Helvetica", 3.7 if len(dias_pagina) <= 15 else 3.4)
-            c.drawCentredString(x + 1.5 * cell_w, y - 4.45 * mm, weekday)
+            c.setFont("Helvetica-Bold", font_dia)
+            c.drawCentredString(x + 1.5 * cell_w, y - 2.7 * mm, str(dia))
+            c.setFont("Helvetica", font_semana)
+            c.drawCentredString(x + 1.5 * cell_w, y - 4.55 * mm, weekday)
 
             for idx, label in enumerate(("PA", "AL", "JA")):
                 cx = x + idx * cell_w
                 c.setFillColor(COR_WEEKEND if especial else colors.white)
                 c.rect(cx, y - header_h1 - header_h2, cell_w, header_h2, fill=1, stroke=1)
                 c.setFillColor(COR_PRINCIPAL)
-                c.setFont("Helvetica", 3.8 if len(dias_pagina) <= 15 else 3.3)
+                c.setFont("Helvetica-Bold", font_ref)
                 c.drawCentredString(cx + cell_w / 2, y - header_h1 - 2.8 * mm, label)
             x += cell_w * 3
 
-        # Cabeçalhos resumo
+        # Cabeçalhos resumo removidos da impressão.
         resumo_x = x0 + ident_w + cell_w * len(dias_pagina) * 3
-        resumo_cols = [("Total\nWelfares", total_welfares_w), ("Reembolso", reimbursement_w)]
-        x = resumo_x
-        for titulo_col, largura in resumo_cols:
-            c.setFillColor(COR_PRINCIPAL)
-            c.rect(x, y - header_h1 - header_h2, largura, header_h1 + header_h2, fill=1, stroke=1)
-            c.setFillColor(colors.white)
-            c.setFont("Helvetica", 4.4)
-            if "\n" in titulo_col:
-                l1, l2 = titulo_col.split("\n", 1)
-                c.drawCentredString(x + largura / 2, y - 3.6 * mm, l1)
-                c.drawCentredString(x + largura / 2, y - 5.5 * mm, l2)
-            else:
-                c.drawCentredString(x + largura / 2, y - (header_h1 + header_h2) / 2 - 1.4, titulo_col)
-            x += largura
 
         y_data_top = y - header_h1 - header_h2
         y = y_data_top
@@ -187,14 +196,16 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
                 c.setFillColor(colors.white)
                 c.rect(x0, y, ident_w, row_h, fill=1, stroke=1)
                 c.setFillColor(colors.black)
-                c.setFont("Helvetica", font_ident)
-                c.drawString(x0 + 0.7 * mm, y + row_h / 2 - font_ident / 2 + 1, ident[:30])
+                font_ident_fit = _fit_font_size(ident, ident_w - 1.6 * mm, font_ident, minimo=2.4)
+                c.setFont("Helvetica", font_ident_fit)
+                c.drawString(x0 + 0.7 * mm, y + row_h / 2 - font_ident_fit / 2 + 1, ident)
 
             x = x0 + ident_w
             cells = row.get("cells", {})
             for dia_info in dias_pagina:
                 dia = dia_info["dia"]
-                dia_cells = cells.get(dia, {})
+                data_key = dia_info.get("data_str", dia)
+                dia_cells = cells.get(data_key, cells.get(dia, {}))
                 for key in ("pa", "al", "ja"):
                     info = dia_cells.get(key, {})
                     fill = normalizar_fill(info.get("fill"))
@@ -227,19 +238,20 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
             c.setFillColor(COR_TOTAL)
             c.rect(x0, y, ident_w, total_h, fill=1, stroke=1)
             c.setFillColor(COR_PRINCIPAL)
-            c.setFont("Helvetica", 5.3)
-            c.drawString(x0 + 0.7 * mm, y + total_h / 2 - 2, "TOTAL DFAC")
+            c.setFont("Helvetica-Bold", font_total)
+            c.drawString(x0 + 0.7 * mm, y + total_h / 2 - font_total / 2 + 1, "TOTAL DFAC")
 
         x = x0 + ident_w
         for dia_info in dias_pagina:
             dia = dia_info["dia"]
-            vals = totais_dfac.get(dia, {"pa": 0, "al": 0, "ja": 0})
+            data_key = dia_info.get("data_str", dia)
+            vals = totais_dfac.get(data_key, totais_dfac.get(dia, {"pa": 0, "al": 0, "ja": 0}))
             for key in ("pa", "al", "ja"):
                 c.setFillColor(COR_TOTAL)
                 c.rect(x, y, cell_w, total_h, fill=1, stroke=1)
                 c.setFillColor(COR_PRINCIPAL)
-                c.setFont("Helvetica", 4.2 if len(dias_pagina) <= 15 else 3.9)
-                c.drawCentredString(x + cell_w / 2, y + total_h / 2 - 1.5, str(vals.get(key, 0)))
+                c.setFont("Helvetica-Bold", font_total)
+                c.drawCentredString(x + cell_w / 2, y + total_h / 2 - font_total / 2 + 1, str(vals.get(key, 0)))
                 x += cell_w
 
         # Totais resumo

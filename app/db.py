@@ -516,25 +516,53 @@ def eliminar_welfare(data_str, refeicao):
     """, (data_str, refeicao))
 
 
-def get_utilizadores_ativos_para_welfare_individual():
+def get_utilizadores_ativos_para_welfare_individual(ano=None, mes=None):
     """
-    Devolve utilizadores ativos para a grelha de Welfare Individual.
-    Exclui o utilizador mestre.
-    Ativo = sem data de partida ou data de partida >= hoje.
+    Devolve utilizadores para a grelha de Welfare Individual no mês indicado.
+
+    Regras mensais:
+    - quem ainda não chegou só aparece a partir do mês da chegada;
+    - quem já partiu aparece apenas até ao mês da partida inclusive;
+    - o utilizador mestre nunca aparece.
+
+    Se ano/mes não forem indicados, mantém compatibilidade com a regra antiga
+    baseada na data de hoje.
     """
     from datetime import date
 
-    hoje = date.today().isoformat()
-
-    return db_rows("""
-        SELECT *
-        FROM utilizadores
-        WHERE master = 0
+    if ano is not None and mes is not None:
+        ultimo_dia = calendar.monthrange(int(ano), int(mes))[1]
+        inicio_mes = f"{int(ano)}-{int(mes):02d}-01"
+        fim_mes = f"{int(ano)}-{int(mes):02d}-{ultimo_dia:02d}"
+        where_periodo = """
+          AND (
+                data_chegada IS NULL
+                OR TRIM(data_chegada) = ''
+                OR SUBSTR(data_chegada, 1, 10) <= ?
+          )
           AND (
                 data_partida IS NULL
                 OR TRIM(data_partida) = ''
-                OR data_partida >= ?
+                OR SUBSTR(data_partida, 1, 10) >= ?
           )
+        """
+        params = (fim_mes, inicio_mes)
+    else:
+        hoje = date.today().isoformat()
+        where_periodo = """
+          AND (
+                data_partida IS NULL
+                OR TRIM(data_partida) = ''
+                OR SUBSTR(data_partida, 1, 10) >= ?
+          )
+        """
+        params = (hoje,)
+
+    return db_rows(f"""
+        SELECT *
+        FROM utilizadores
+        WHERE master = 0
+        {where_periodo}
         ORDER BY
             CASE posto
                 WHEN 'OF-6' THEN 1
@@ -560,7 +588,7 @@ def get_utilizadores_ativos_para_welfare_individual():
             END ASC,
             sobrenome COLLATE NOCASE,
             nome COLLATE NOCASE
-    """, (hoje,))
+    """, params)
 
 
 def get_welfares_individuais_mes(ano, mes):

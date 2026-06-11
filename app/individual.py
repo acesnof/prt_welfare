@@ -39,7 +39,7 @@ from app.reports.individual_pdf import gerar_pdf_welfare_individual
 
 COR_COHESION = "#f3fbf4"
 COR_RESUMO = "#f7f7f7"
-COR_INATIVO = "#d9d9d9"
+COR_INATIVO = "#888888"
 COR_TOTAL = "#e8f4f6"
 COR_SEMANA = "#eef7f8"
 COR_CHEGADA = "#c9f8ee"
@@ -565,7 +565,8 @@ class WelfareIndividualWindow:
         self.janela.focus_force()
 
     def carregar_dados(self):
-        self.utilizadores = get_utilizadores_ativos_para_welfare_individual()
+        self._ctx_meses_export = {}
+        self.utilizadores = get_utilizadores_ativos_para_welfare_individual(self.ano_atual, self.mes_atual)
         self.mensais = get_welfares_mes(self.ano_atual, self.mes_atual)
         self.individuais = get_welfares_individuais_mes(self.ano_atual, self.mes_atual)
         self.day_offs = get_day_offs_mes(self.ano_atual, self.mes_atual)
@@ -1549,24 +1550,143 @@ class WelfareIndividualWindow:
         self.janela.focus_force()
 
 
+    def _ctx_mes_export(self, ano, mes):
+        """Carrega em memória o contexto de qualquer mês para exportações semanais completas."""
+        if not hasattr(self, "_ctx_meses_export"):
+            self._ctx_meses_export = {}
+
+        chave_mes = (int(ano), int(mes))
+        if chave_mes in self._ctx_meses_export:
+            return self._ctx_meses_export[chave_mes]
+
+        mensais = get_welfares_mes(ano, mes)
+        individuais = get_welfares_individuais_mes(ano, mes)
+        day_offs = get_day_offs_mes(ano, mes)
+        ferias_raw = get_ferias_mes(ano, mes)
+
+        ferias_intervalos = {}
+        for user_id, periodos in (ferias_raw or {}).items():
+            lista = []
+            for periodo in periodos:
+                inicio = self._parse_dt_ferias(periodo.get("data_hora_inicio"), "00:00")
+                fim = self._parse_dt_ferias(periodo.get("data_hora_fim"), "23:59")
+                if inicio and fim:
+                    lista.append((inicio, fim))
+            ferias_intervalos[user_id] = lista
+
+        ctx = {
+            "mensais_set": {
+                (data_str, welfare.get("refeicao"))
+                for data_str, lista in (mensais or {}).items()
+                for welfare in lista
+            },
+            "individuais": individuais or {},
+            "day_offs": day_offs or set(),
+            "ferias_intervalos": ferias_intervalos,
+        }
+        self._ctx_meses_export[chave_mes] = ctx
+        return ctx
+
+    def _ctx_para_data(self, data_ref):
+        if data_ref.year == self.ano_atual and data_ref.month == self.mes_atual:
+            return {
+                "mensais_set": self._mensais_set,
+                "individuais": self.individuais,
+                "day_offs": self.day_offs,
+                "ferias_intervalos": self._ferias_intervalos,
+            }
+        return self._ctx_mes_export(data_ref.year, data_ref.month)
+
+    def _user_em_ferias_na_data_ctx(self, user, data_str, ctx):
+        user_id = user.get("id")
+        limite_regresso = 7 * 60
+        for inicio, fim in ctx.get("ferias_intervalos", {}).get(user_id, []):
+            inicio_data = inicio.date().isoformat()
+            fim_data = fim.date().isoformat()
+            if data_str < inicio_data or data_str > fim_data:
+                continue
+            if data_str == fim_data and self._to_minutes(fim.strftime("%H:%M")) < limite_regresso:
+                return False
+            return True
+        return False
+
+    def _user_tem_pequeno_almoco_em_ferias_na_data_ctx(self, user, data_str, ctx):
+        user_id = user.get("id")
+        limite_inicio = 7 * 60
+        limite_regresso = 9 * 60
+        for inicio, fim in ctx.get("ferias_intervalos", {}).get(user_id, []):
+            inicio_data = inicio.date().isoformat()
+            fim_data = fim.date().isoformat()
+            if data_str < inicio_data or data_str > fim_data:
+                continue
+            if inicio_data == fim_data == data_str:
+                if self._to_minutes(inicio.strftime("%H:%M")) < limite_inicio:
+                    return False
+                if self._to_minutes(fim.strftime("%H:%M")) >= limite_regresso:
+                    return False
+                return True
+            if data_str == inicio_data:
+                if self._to_minutes(inicio.strftime("%H:%M")) < limite_inicio:
+                    return False
+                return True
+            if data_str == fim_data:
+                return self._to_minutes(fim.strftime("%H:%M")) < limite_regresso
+            return False
+        return True
+
+    def _user_tem_pequeno_almoco_na_data_ctx(self, user, data_str, ctx):
+        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
+        partida = user.get("_partida_date") if "_partida_date" in user else self._date_part(user.get("data_partida"))
+        limite_chegada = 9 * 60
+
+        if chegada:
+            if data_str < chegada:
+                return False
+            if data_str == chegada and int(user.get("_chegada_min", 0) or 0) >= limite_chegada:
+                return False
+        if partida and data_str >= partida:
+            return False
+        if not self._user_tem_pequeno_almoco_em_ferias_na_data_ctx(user, data_str, ctx):
+            return False
+        return True
+
+    def _valor_efetivo_ctx(self, utilizador_id, data_str, refeicao, ctx):
+        chave = (utilizador_id, data_str, refeicao)
+        if chave in self.alteracoes_pendentes:
+            return bool(self.alteracoes_pendentes[chave])
+        if chave in ctx.get("individuais", {}):
+            return bool(ctx["individuais"][chave])
+        return (data_str, refeicao) in ctx.get("mensais_set", set())
+
+    def _valor_pequeno_almoco_ctx(self, user, data_str, ctx):
+        if not self._user_tem_pequeno_almoco_na_data_ctx(user, data_str, ctx):
+            return False
+        chave = (user["id"], data_str, REFEICAO_PEQUENO_ALMOCO)
+        if chave in self.alteracoes_pendentes:
+            return bool(self.alteracoes_pendentes[chave])
+        if chave in ctx.get("individuais", {}):
+            return bool(ctx["individuais"][chave])
+        return True
+
     def _totais_semana_para_export(self, inicio_semana):
         totais = []
         for offset in range(7):
             data_ref = inicio_semana + timedelta(days=offset)
             data_str = data_ref.isoformat()
+            ctx = self._ctx_para_data(data_ref)
             pequeno_almoco = 0
             almoco_dfac = 0
             jantar_dfac = 0
 
             for user in self.utilizadores:
-                if self.valor_pequeno_almoco(user, data_str):
+                if self._valor_pequeno_almoco_ctx(user, data_str, ctx):
                     pequeno_almoco += 1
 
-                if self.user_ativo_na_data(user, data_str) and not self.user_em_ferias_na_data(user, data_str):
+                if self.user_ativo_na_data(user, data_str) and not self._user_em_ferias_na_data_ctx(user, data_str, ctx):
                     user_id = user["id"]
-                    if not self.valor_efetivo(user_id, data_str, "Almoço"):
+                    if not self._valor_efetivo_ctx(user_id, data_str, "Almoço", ctx):
                         almoco_dfac += 1
-                    if not self.valor_efetivo(user_id, data_str, "Jantar"):
+                    if not self._valor_efetivo_ctx(user_id, data_str, "Jantar", ctx):
                         jantar_dfac += 1
 
             totais.append({
@@ -1609,6 +1729,145 @@ class WelfareIndividualWindow:
             return
 
         messagebox.showinfo(t("saved"), destino, parent=self.janela)
+        self.janela.lift()
+        self.janela.focus_force()
+
+    def mostrar_menu_semana(self, event, inicio_semana_str, numero_semana):
+        """Mostra uma pequena dropdown com ações para a semana clicada."""
+        menu = tk.Menu(self.janela, tearoff=0)
+        menu.add_command(
+            label="Exportar Excel",
+            command=lambda: self.exportar_semana(inicio_semana_str, numero_semana)
+        )
+        menu.add_command(
+            label="Imprimir Semana",
+            command=lambda: self.imprimir_semana(inicio_semana_str, numero_semana)
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _dias_semana_para_pdf(self, inicio_semana):
+        """Devolve sempre os 7 dias completos da semana clicada."""
+        dias_semana = []
+        for offset in range(7):
+            data_ref = inicio_semana + timedelta(days=offset)
+            data_str = data_ref.isoformat()
+            ctx = self._ctx_para_data(data_ref)
+            weekday = calendar.weekday(data_ref.year, data_ref.month, data_ref.day)
+            dias_semana.append({
+                "dia": data_ref.day,
+                "data_str": data_str,
+                "weekday": weekdays_short()[weekday],
+                "especial": weekday in [5, 6] or data_str in ctx.get("day_offs", set()),
+            })
+        return dias_semana
+
+    def _dados_para_pdf_semana_completa(self, inicio_semana):
+        dias = self._dias_semana_para_pdf(inicio_semana)
+        totais_dfac = {dia_info["data_str"]: {"pa": 0, "al": 0, "ja": 0} for dia_info in dias}
+        rows = []
+
+        for user in self.utilizadores:
+            row_cells = {}
+            for dia_info in dias:
+                data_str = dia_info["data_str"]
+                ctx = self._ctx_para_data(datetime.strptime(data_str, "%Y-%m-%d").date())
+                especial = bool(dia_info["especial"])
+                ferias_data = self._user_em_ferias_na_data_ctx(user, data_str, ctx)
+                ativo_refeicoes = self.user_ativo_na_data(user, data_str) and not ferias_data
+                ativo_pa = self._user_tem_pequeno_almoco_na_data_ctx(user, data_str, ctx)
+                base = COR_WEEKEND if especial else COR_BRANCO
+
+                if ferias_data and self.user_ativo_na_data(user, data_str):
+                    pa_fill = COR_FERIAS
+                    pa_text = "F"
+                elif not ativo_pa:
+                    pa_fill = COR_INATIVO
+                    pa_text = ""
+                elif self._valor_pequeno_almoco_ctx(user, data_str, ctx):
+                    pa_fill = base
+                    pa_text = ""
+                    totais_dfac[data_str]["pa"] += 1
+                else:
+                    pa_fill = COR_VERMELHO
+                    pa_text = ""
+
+                row_cells[data_str] = {"pa": {"fill": pa_fill, "text": pa_text}}
+
+                for key, refeicao in (("al", "Almoço"), ("ja", "Jantar")):
+                    if ferias_data and self.user_ativo_na_data(user, data_str):
+                        fill = COR_FERIAS
+                        text = "F"
+                    elif not ativo_refeicoes:
+                        fill = COR_INATIVO
+                        text = ""
+                    else:
+                        marcado = self._valor_efetivo_ctx(user["id"], data_str, refeicao, ctx)
+                        if marcado:
+                            fill = COR_VERMELHO
+                            text = ""
+                        else:
+                            fill = base
+                            text = ""
+                            totais_dfac[data_str][key] += 1
+                    row_cells[data_str][key] = {"fill": fill, "text": text}
+
+            w_total, c_total, r_total = self.calcular_resumo_user(user)
+            rows.append({
+                "identificacao": self.identificacao(user),
+                "cells": row_cells,
+                "welfare_total": w_total,
+                "cohesion_total": c_total,
+                "reimbursement": r_total,
+            })
+
+        return dias, rows, totais_dfac
+
+    def imprimir_semana(self, inicio_semana_str, numero_semana):
+        try:
+            inicio_semana = datetime.strptime(inicio_semana_str, "%Y-%m-%d").date()
+        except ValueError:
+            messagebox.showerror(t("error"), t("date_format"), parent=self.janela)
+            self.janela.lift()
+            self.janela.focus_force()
+            return
+
+        dias_semana, rows_semana, totais_dfac_semana = self._dados_para_pdf_semana_completa(inicio_semana)
+
+        nome = f"W{numero_semana}-{inicio_semana.year}_Welfare_Individual.pdf"
+        caminho = filedialog.asksaveasfilename(
+            parent=self.janela,
+            title=t("save_as"),
+            initialfile=nome,
+            defaultextension=".pdf",
+            filetypes=[(t("pdf_files"), "*.pdf"), ("PDF", "*.pdf")]
+        )
+        if not caminho:
+            self.janela.lift()
+            self.janela.focus_force()
+            return
+
+        periodo = f"{self.prefixo_semana()}{numero_semana} - {inicio_semana.year}"
+        try:
+            gerar_pdf_welfare_individual(
+                caminho_pdf=caminho,
+                titulo="Contingente Português - Welfares/Marcações Individuais",
+                periodo=periodo,
+                dias=dias_semana,
+                rows=rows_semana,
+                totais_dfac=totais_dfac_semana,
+                day_offs=set().union(*(self._ctx_para_data(datetime.strptime(d["data_str"], "%Y-%m-%d").date()).get("day_offs", set()) for d in dias_semana)),
+                modo_paginas=1,
+            )
+        except Exception as exc:
+            messagebox.showerror(t("error"), str(exc), parent=self.janela)
+            self.janela.lift()
+            self.janela.focus_force()
+            return
+
+        messagebox.showinfo(t("saved"), t("pdf_saved"), parent=self.janela)
         self.janela.lift()
         self.janela.focus_force()
 
@@ -2145,7 +2404,7 @@ class WelfareIndividualWindow:
         inicio_semana_str, numero_semana = self._semana_click_tag()
         if inicio_semana_str:
             if self.pode_exportar_semanas():
-                self.exportar_semana(inicio_semana_str, numero_semana)
+                self.mostrar_menu_semana(event, inicio_semana_str, numero_semana)
             return
 
         if is_mes_trancado(self.ano_atual, self.mes_atual):

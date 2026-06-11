@@ -1,0 +1,1 @@
+pyinstaller --noconfirm --clean --windowed --icon=docs\favico.ico --name PRT_Welfare main.py
