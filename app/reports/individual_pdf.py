@@ -81,7 +81,7 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
         usable_w = page_w - 2 * margem
         usable_h = page_h - 2 * margem
 
-        titulo_h = 8 * mm
+        titulo_h = 13 * mm
         header_h1 = 5.0 * mm
         header_h2 = 4.0 * mm
         total_h = 6.2 * mm
@@ -147,6 +147,15 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
         if total_paginas > 1:
             sufixo = f"{periodo}  |  {indice_pagina}/{total_paginas}"
         c.drawRightString(page_w - margem, y_top - 5 * mm, sufixo)
+
+        # Legenda Welfare, por cima da tabela, encostada à esquerda.
+        legend_y = y_top - 10.2 * mm
+        legend_size = 3.4 * mm
+        c.setFillColor(colors.HexColor("#b01b1b"))
+        c.rect(x0, legend_y, legend_size, legend_size, fill=1, stroke=0)
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica", 7)
+        c.drawString(x0 + legend_size + 1.5 * mm, legend_y + 0.55 * mm, "Wellfare")
 
         y = y_top - titulo_h
 

@@ -204,9 +204,9 @@ def _limpar_linhas(ws):
                 limpas.add(coord)
 
 
-def _preencher_cabecalhos(ws, ano, mes):
+def _preencher_cabecalhos(ws, ano, mes, data_inicio_override=None):
     inicio, fim = _formatar_inicio_fim(ano, mes)
-    _set_value(ws, "B5", inicio)
+    _set_value(ws, "B5", data_inicio_override or inicio)
     _set_value(ws, "C5", fim)
     _set_value(ws, "B30", _formatar_data_exportacao())
 
@@ -220,7 +220,7 @@ def _preencher_assinatura(ws, primeiro):
         _set_value(ws, "B31", "")
 
 
-def gerar_reembolso_mensal(docs_dir, destino, ano, mes, linhas, senior_assinatura=None):
+def gerar_reembolso_mensal(docs_dir, destino, ano, mes, linhas, senior_assinatura=None, data_inicio_override=None):
     """
     Preenche docs/meals_reimbursment.xlsx com os reembolsos mensais.
 
@@ -247,7 +247,7 @@ def gerar_reembolso_mensal(docs_dir, destino, ano, mes, linhas, senior_assinatur
 
     for sheet_idx, sheet_name in enumerate(SHEETS):
         ws = wb[sheet_name]
-        _preencher_cabecalhos(ws, ano, mes)
+        _preencher_cabecalhos(ws, ano, mes, data_inicio_override=data_inicio_override)
         _preencher_assinatura(ws, primeiro)
         _limpar_linhas(ws)
 

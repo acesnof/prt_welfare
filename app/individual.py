@@ -865,6 +865,27 @@ class WelfareIndividualWindow:
             return False
         return True
 
+    def user_tem_refeicao_na_data(self, user, data_str, refeicao):
+        """
+        Regras no dia de chegada:
+        - antes das 09h00: PA, Almoço e Jantar;
+        - das 09h00 até antes das 14h00: Almoço e Jantar;
+        - das 14h00 até antes das 20h00: Jantar;
+        - a partir das 20h00: nenhuma refeição nesse dia.
+        """
+        if not self.user_ativo_na_data(user, data_str):
+            return False
+
+        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
+        if chegada and data_str == chegada:
+            minutos = int(user.get("_chegada_min", 0) or 0)
+            if refeicao == "Almoço":
+                return minutos < 14 * 60
+            if refeicao == "Jantar":
+                return minutos < 20 * 60
+
+        return True
+
     def user_tem_pequeno_almoco_na_data(self, user, data_str):
         chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
         partida = user.get("_partida_date") if "_partida_date" in user else self._date_part(user.get("data_partida"))
@@ -940,10 +961,12 @@ class WelfareIndividualWindow:
         cohesion = 0
         for info in self._day_infos:
             data_str = info["data_str"]
-            if not self.user_ativo_na_data(user, data_str) or self.user_em_ferias_na_data(user, data_str):
+            if self.user_em_ferias_na_data(user, data_str):
                 continue
             especial = info["especial"]
             for refeicao in REFEICOES_WELFARE:
+                if not self.user_tem_refeicao_na_data(user, data_str, refeicao):
+                    continue
                 if self.valor_efetivo(user_id, data_str, refeicao):
                     if especial:
                         welfare += 1
@@ -972,11 +995,11 @@ class WelfareIndividualWindow:
             user_id = user["id"]
             for info in self._day_infos:
                 data_str = info["data_str"]
-                if not self.user_ativo_na_data(user, data_str) or self.user_em_ferias_na_data(user, data_str):
+                if self.user_em_ferias_na_data(user, data_str):
                     continue
-                if not self.valor_efetivo(user_id, data_str, "Almoço"):
+                if self.user_tem_refeicao_na_data(user, data_str, "Almoço") and not self.valor_efetivo(user_id, data_str, "Almoço"):
                     almoco += 1
-                if not self.valor_efetivo(user_id, data_str, "Jantar"):
+                if self.user_tem_refeicao_na_data(user, data_str, "Jantar") and not self.valor_efetivo(user_id, data_str, "Jantar"):
                     jantar += 1
         result = (almoco, jantar, almoco + jantar)
         self._dfac_cache = (cache_key, result)
@@ -1095,12 +1118,22 @@ class WelfareIndividualWindow:
         total_h = self.header_h1 + self.header_h2 + max(len(self.utilizadores) + 2, 2) * self.row_h
         self.desenhar_header_base(total_h, total_w, dias, unidades_por_dia=2)
 
-        resumo_cols = [("Welfare", self.welfare_w), (t("cohesion"), self.cohesion_w), (t("reimbursement"), self.reimbursement_w), (t("select"), self.select_w)]
+        resumo_cols = [("Welfare", self.welfare_w), (t("cohesion"), self.cohesion_w), (t("reimbursement"), self.reimbursement_w)]
         x = resumo_x
         for titulo, largura in resumo_cols:
             self.canvas.create_rectangle(x, 0, x + largura, self.header_h1 + self.header_h2, fill=COR_PRINCIPAL, outline=COR_LINHA)
             self.canvas.create_text(x + largura / 2, (self.header_h1 + self.header_h2) / 2, text=titulo, fill="white", font=("Arial", 8, "bold"))
             x += largura
+
+        # Cabeçalho da coluna Selecionar com checkbox para marcar/desmarcar todos.
+        tag_select_all = "select_hoto_all"
+        todos_ids = {user.get("id") for user in self.utilizadores}
+        todos_selecionados = bool(todos_ids) and todos_ids.issubset(self.hoto_selecionados)
+        check_all = "☑" if todos_selecionados else "☐"
+        self.canvas.create_rectangle(x, 0, x + self.select_w, self.header_h1 + self.header_h2, fill=COR_PRINCIPAL, outline=COR_LINHA, tags=(tag_select_all,))
+        self.canvas.create_text(x + self.select_w / 2, 16, text=t("select"), fill="white", font=("Arial", 8, "bold"), tags=(tag_select_all,))
+        self.canvas.create_text(x + self.select_w / 2, 39, text=check_all, fill="white", font=("Arial", 13, "bold"), tags=(tag_select_all,))
+        x += self.select_w
 
         if not self.utilizadores:
             self.canvas.create_text(20, self.header_h1 + self.header_h2 + 20, text=t("no_active_users"), anchor="w", fill="#555555", font=("Arial", 11))
@@ -1124,15 +1157,17 @@ class WelfareIndividualWindow:
                 is_day_off = info["day_off"]
                 ativo_data = self.user_ativo_na_data(user, data_str)
                 ferias_data = ativo_data and self.user_em_ferias_na_data(user, data_str)
-                bg_base = COR_WEEKEND if (fim_semana or is_day_off) else COR_BRANCO
-                if not ativo_data:
-                    bg_base = COR_INATIVO
-                elif ferias_data:
-                    bg_base = COR_FERIAS
+                base_dia = COR_WEEKEND if (fim_semana or is_day_off) else COR_BRANCO
                 for idx, refeicao in enumerate(REFEICOES_WELFARE):
                     x = self.ident_w + (dia - 1) * 2 * self.cell_w + idx * self.cell_w
-                    marcado = ativo_data and not ferias_data and self.valor_efetivo(user_id, data_str, refeicao)
-                    if ativo_data and not ferias_data and not marcado:
+                    ativo_refeicao = self.user_tem_refeicao_na_data(user, data_str, refeicao)
+                    bg_base = base_dia
+                    if not ativo_refeicao:
+                        bg_base = COR_INATIVO
+                    elif ferias_data:
+                        bg_base = COR_FERIAS
+                    marcado = ativo_refeicao and not ferias_data and self.valor_efetivo(user_id, data_str, refeicao)
+                    if ativo_refeicao and not ferias_data and not marcado:
                         totais_dfac[dia][refeicao] += 1
                     chave = (user_id, data_str, refeicao)
                     if chave in self.alteracoes_pendentes:
@@ -1142,7 +1177,7 @@ class WelfareIndividualWindow:
                     else:
                         # Hover apenas nas células normais, vazias e ativas.
                         # Não cobre fins de semana/Days Off nem células cinzentas de inatividade.
-                        pode_hover = ativo_data and not ferias_data and not fim_semana and not is_day_off
+                        pode_hover = ativo_refeicao and not ferias_data and not fim_semana and not is_day_off
                         fill = COR_HOVER if (self.hover_row_idx == row_idx and pode_hover) else bg_base
                     tag = f"cell|{user_id}|{data_str}|{refeicao}"
                     self.canvas.create_rectangle(x, y, x + self.cell_w, y + self.row_h, fill=fill, outline=COR_LINHA, tags=(tag,))
@@ -1321,6 +1356,13 @@ class WelfareIndividualWindow:
                         return partes[1], int(partes[2])
         return None, None
 
+    def _select_hoto_all_click_tag(self):
+        item_atual = self.canvas.find_withtag("current")
+        for item in item_atual:
+            if "select_hoto_all" in self.canvas.gettags(item):
+                return True
+        return False
+
     def _select_hoto_click_tag(self):
         item_atual = self.canvas.find_withtag("current")
         for item in item_atual:
@@ -1333,6 +1375,18 @@ class WelfareIndividualWindow:
                         except ValueError:
                             return None
         return None
+
+    def alternar_selecao_hoto_todos(self):
+        ids_visiveis = {user.get("id") for user in self.utilizadores if user.get("id") is not None}
+        if not ids_visiveis:
+            return
+
+        if ids_visiveis.issubset(self.hoto_selecionados):
+            self.hoto_selecionados.difference_update(ids_visiveis)
+        else:
+            self.hoto_selecionados.update(ids_visiveis)
+
+        self.desenhar_grelha()
 
 
     def _dados_para_pdf_welfare_individual(self):
@@ -1358,7 +1412,6 @@ class WelfareIndividualWindow:
                 data_str = dia_info["data_str"]
                 especial = bool(dia_info["especial"])
                 ferias_data = self.user_em_ferias_na_data(user, data_str)
-                ativo_refeicoes = self.user_ativo_na_data(user, data_str) and not ferias_data
                 ativo_pa = self.user_tem_pequeno_almoco_na_data(user, data_str)
                 base = COR_WEEKEND if especial else COR_BRANCO
 
@@ -1384,10 +1437,11 @@ class WelfareIndividualWindow:
                 }
 
                 for key, refeicao in (("al", "Almoço"), ("ja", "Jantar")):
-                    if ferias_data and self.user_ativo_na_data(user, data_str):
+                    ativo_refeicao = self.user_tem_refeicao_na_data(user, data_str, refeicao)
+                    if ferias_data and ativo_refeicao:
                         fill = COR_FERIAS
                         text = "F"
-                    elif not ativo_refeicoes:
+                    elif not ativo_refeicao:
                         fill = COR_INATIVO
                         text = ""
                     else:
@@ -1650,6 +1704,20 @@ class WelfareIndividualWindow:
             return False
         return True
 
+    def _user_tem_refeicao_na_data_ctx(self, user, data_str, refeicao, ctx):
+        if not self.user_ativo_na_data(user, data_str):
+            return False
+
+        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
+        if chegada and data_str == chegada:
+            minutos = int(user.get("_chegada_min", 0) or 0)
+            if refeicao == "Almoço":
+                return minutos < 14 * 60
+            if refeicao == "Jantar":
+                return minutos < 20 * 60
+
+        return True
+
     def _valor_efetivo_ctx(self, utilizador_id, data_str, refeicao, ctx):
         chave = (utilizador_id, data_str, refeicao)
         if chave in self.alteracoes_pendentes:
@@ -1682,11 +1750,11 @@ class WelfareIndividualWindow:
                 if self._valor_pequeno_almoco_ctx(user, data_str, ctx):
                     pequeno_almoco += 1
 
-                if self.user_ativo_na_data(user, data_str) and not self._user_em_ferias_na_data_ctx(user, data_str, ctx):
+                if not self._user_em_ferias_na_data_ctx(user, data_str, ctx):
                     user_id = user["id"]
-                    if not self._valor_efetivo_ctx(user_id, data_str, "Almoço", ctx):
+                    if self._user_tem_refeicao_na_data_ctx(user, data_str, "Almoço", ctx) and not self._valor_efetivo_ctx(user_id, data_str, "Almoço", ctx):
                         almoco_dfac += 1
-                    if not self._valor_efetivo_ctx(user_id, data_str, "Jantar", ctx):
+                    if self._user_tem_refeicao_na_data_ctx(user, data_str, "Jantar", ctx) and not self._valor_efetivo_ctx(user_id, data_str, "Jantar", ctx):
                         jantar_dfac += 1
 
             totais.append({
@@ -1776,7 +1844,6 @@ class WelfareIndividualWindow:
                 ctx = self._ctx_para_data(datetime.strptime(data_str, "%Y-%m-%d").date())
                 especial = bool(dia_info["especial"])
                 ferias_data = self._user_em_ferias_na_data_ctx(user, data_str, ctx)
-                ativo_refeicoes = self.user_ativo_na_data(user, data_str) and not ferias_data
                 ativo_pa = self._user_tem_pequeno_almoco_na_data_ctx(user, data_str, ctx)
                 base = COR_WEEKEND if especial else COR_BRANCO
 
@@ -1797,10 +1864,11 @@ class WelfareIndividualWindow:
                 row_cells[data_str] = {"pa": {"fill": pa_fill, "text": pa_text}}
 
                 for key, refeicao in (("al", "Almoço"), ("ja", "Jantar")):
-                    if ferias_data and self.user_ativo_na_data(user, data_str):
+                    ativo_refeicao = self._user_tem_refeicao_na_data_ctx(user, data_str, refeicao, ctx)
+                    if ferias_data and ativo_refeicao:
                         fill = COR_FERIAS
                         text = "F"
-                    elif not ativo_refeicoes:
+                    elif not ativo_refeicao:
                         fill = COR_INATIVO
                         text = ""
                     else:
@@ -1921,6 +1989,17 @@ class WelfareIndividualWindow:
     def abrir_distribuicao_xfa(self):
         if self.app.trazer_janela_tipo("distribuicao_xfa"):
             return
+
+        if not getattr(self, "hoto_selecionados", set()):
+            messagebox.showwarning(
+                "Validação",
+                "Selecione pelo menos uma pessoa para efetuar a Distribuição XFA.",
+                parent=self.janela
+            )
+            self.janela.lift()
+            self.janela.focus_force()
+            return
+
         XfaDistributionWindow(self)
 
 
@@ -1941,14 +2020,14 @@ class WelfareIndividualWindow:
             datas = []
             for dia in range(1, self.dias_mes() + 1):
                 data_str = f"{self.ano_atual}-{self.mes_atual:02d}-{dia:02d}"
-                if not self.user_ativo_na_data(user, data_str) or self.user_em_ferias_na_data(user, data_str):
+                if self.user_em_ferias_na_data(user, data_str):
                     continue
                 if self.is_fim_semana_ou_day_off(data_str):
                     continue
 
                 tem_coesao = False
                 for refeicao in REFEICOES_WELFARE:
-                    if self.valor_efetivo(user["id"], data_str, refeicao):
+                    if self.user_tem_refeicao_na_data(user, data_str, refeicao) and self.valor_efetivo(user["id"], data_str, refeicao):
                         tem_coesao = True
                         break
 
@@ -2102,6 +2181,16 @@ class WelfareIndividualWindow:
             return formatar_data_militar(data_obj)
         except Exception:
             return data_txt
+
+    def _data_partida_hoto_excel(self, user):
+        raw = self._data_partida_para_comparar(user)
+        if not raw:
+            return ""
+        try:
+            data_obj = datetime.strptime(raw[:10], "%Y-%m-%d").date()
+            return data_obj.strftime("%d.%m.%Y")
+        except Exception:
+            return raw[:10]
 
     def _mostrar_erro_datas_hoto(self, selecionados):
         dlg = tk.Toplevel(self.janela)
@@ -2330,6 +2419,7 @@ class WelfareIndividualWindow:
 
     def exportar_reembolso(self, hoto=False):
         utilizadores_override = None
+        data_inicio_override = None
 
         if hoto:
             if not self.hoto_selecionados:
@@ -2347,6 +2437,7 @@ class WelfareIndividualWindow:
                 return
 
             utilizadores_override = selecionados
+            data_inicio_override = self._data_partida_hoto_excel(selecionados[0]) if selecionados else None
 
         linhas = self._dados_reembolso_para_export(hoto=hoto, utilizadores_override=utilizadores_override)
         if not linhas:
@@ -2380,6 +2471,7 @@ class WelfareIndividualWindow:
                 mes=self.mes_atual,
                 linhas=linhas,
                 senior_assinatura=get_snr_unico_para_assinatura(),
+                data_inicio_override=data_inicio_override,
             )
         except Exception as exc:
             messagebox.showerror(t("error"), str(exc), parent=self.janela)
@@ -2392,6 +2484,10 @@ class WelfareIndividualWindow:
         self.janela.focus_force()
 
     def on_canvas_click(self, event):
+        if self._select_hoto_all_click_tag():
+            self.alternar_selecao_hoto_todos()
+            return
+
         user_id_select = self._select_hoto_click_tag()
         if user_id_select is not None:
             if user_id_select in self.hoto_selecionados:
@@ -2437,7 +2533,7 @@ class WelfareIndividualWindow:
             return
         user = self.utilizadores[row_idx]
         data_str = f"{self.ano_atual}-{self.mes_atual:02d}-{dia_idx:02d}"
-        if not self.user_ativo_na_data(user, data_str) or self.user_em_ferias_na_data(user, data_str):
+        if not self.user_tem_refeicao_na_data(user, data_str, refeicao) or self.user_em_ferias_na_data(user, data_str):
             return
         chave = (user["id"], data_str, refeicao)
         atual = self.valor_efetivo(user["id"], data_str, refeicao)
@@ -2533,44 +2629,36 @@ class XfaDistributionWindow:
             ent = tk.Entry(linha, width=10, justify="center", font=("Arial", 11))
             ent.insert(0, "0")
             ent.pack(side="left", padx=(8, 0), ipady=4)
+            ent.bind("<KeyRelease>", self._atualizar_total_notas)
+            ent.bind("<FocusOut>", self._atualizar_total_notas)
             self.entries[denom] = ent
 
-        self.modo_distribuicao = tk.StringVar(value="outros")
-        self.tem_hoto = bool(self.individual._dados_reembolso_para_export(hoto=True))
-        if self.tem_hoto:
-            box = tk.LabelFrame(
-                painel,
-                text="Pessoal a considerar",
-                bg="#f7fbfb",
-                fg=COR_PRINCIPAL,
-                font=("Arial", 9, "bold"),
-                padx=8,
-                pady=6,
-            )
-            box.pack(fill="x", pady=(14, 2))
-            tk.Radiobutton(
-                box,
-                text="Outros",
-                variable=self.modo_distribuicao,
-                value="outros",
-                bg="#f7fbfb",
-                activebackground="#f7fbfb",
-                font=("Arial", 9, "bold"),
-                command=self._atualizar_manual_if_active,
-            ).pack(anchor="w")
-            tk.Radiobutton(
-                box,
-                text="HOTO",
-                variable=self.modo_distribuicao,
-                value="hoto",
-                bg="#f7fbfb",
-                activebackground="#f7fbfb",
-                font=("Arial", 9, "bold"),
-                command=self._atualizar_manual_if_active,
-            ).pack(anchor="w")
+        self.lbl_total_notas = tk.Label(
+            painel,
+            text="",
+            bg="#f7fbfb",
+            fg="#111111",
+            font=("Arial", 11, "bold"),
+            anchor="w",
+            justify="left",
+        )
+        self.lbl_total_notas.pack(anchor="w", fill="x", pady=(12, 2))
+        self._atualizar_total_notas()
+
+        self.lbl_total_reembolso = tk.Label(
+            painel,
+            text="",
+            bg="#f7fbfb",
+            fg=COR_PRINCIPAL,
+            font=("Arial", 12, "bold"),
+            anchor="w",
+            justify="left",
+        )
+        self.lbl_total_reembolso.pack(anchor="w", fill="x", pady=(16, 4))
+        self._atualizar_total_reembolso()
 
         botoes_calc = tk.Frame(painel, bg="#f7fbfb")
-        botoes_calc.pack(anchor="w", pady=(18, 8))
+        botoes_calc.pack(anchor="w", pady=(8, 8))
 
         tk.Button(
             botoes_calc,
@@ -2606,7 +2694,7 @@ class XfaDistributionWindow:
         self.manual_container = tk.Frame(painel, bg="#f7fbfb")
         self.manual_container.pack(fill="both", expand=False, pady=(2, 4))
 
-        self.lbl_info = tk.Label(painel, text="Indica o número de notas disponíveis. Se existirem linhas selecionadas no Welfare Individual, a distribuição é feita apenas para essa seleção.", bg="#f7fbfb", fg="#555555", font=("Arial", 9), wraplength=300, justify="left")
+        self.lbl_info = tk.Label(painel, text="Indica o número de notas disponíveis. A distribuição é feita apenas para as pessoas selecionadas no Welfare Individual.", bg="#f7fbfb", fg="#555555", font=("Arial", 9), wraplength=300, justify="left")
         self.lbl_info.pack(anchor="w", pady=(6, 0))
 
         tabela_frame = tk.Frame(corpo, bg="white")
@@ -2669,16 +2757,57 @@ class XfaDistributionWindow:
             self._linhas_marcadas.add(item)
             self.tabela.item(item, tags=("feito",))
 
+    def _total_notas_atual(self):
+        total = 0
+        for denom, ent in self.entries.items():
+            raw = (ent.get() or "0").strip().replace(".", "").replace(" ", "")
+            try:
+                qtd = int(raw or 0)
+                if qtd < 0:
+                    qtd = 0
+            except ValueError:
+                qtd = 0
+            total += int(denom) * qtd
+        return total
+
+    def _atualizar_total_notas(self, event=None):
+        if not hasattr(self, "lbl_total_notas"):
+            return
+        total = self._total_notas_atual()
+        self.lbl_total_notas.config(
+            text=f"Total em notas: {self.individual.formatar_valor(total)} XAF"
+        )
+
+    def _total_reembolso_atual(self):
+        linhas = self._dados_pessoas() if self.manual_mode else self._dados_pessoas_base()
+        if linhas is None:
+            return 0
+        return sum(int(linha.get("reimbursement") or 0) for linha in linhas)
+
+    def _atualizar_total_reembolso(self, event=None):
+        if not hasattr(self, "lbl_total_reembolso"):
+            return
+        total = self._total_reembolso_atual()
+        self.lbl_total_reembolso.config(
+            text=f"Total Reembolso: {self.individual.formatar_valor(total)} XAF"
+        )
+
+    def _on_modo_distribuicao_change(self):
+        self._atualizar_manual_if_active()
+        self._atualizar_total_reembolso()
+
     def toggle_manual(self):
         self.manual_mode = not self.manual_mode
         if self.manual_mode:
             self._criar_manual_entries()
         else:
             self._limpar_manual_entries()
+        self._atualizar_total_reembolso()
 
     def _atualizar_manual_if_active(self):
         if self.manual_mode:
             self._criar_manual_entries()
+        self._atualizar_total_reembolso()
 
     def _limpar_manual_entries(self):
         self.manual_entries = []
@@ -2692,7 +2821,7 @@ class XfaDistributionWindow:
         if not linhas:
             tk.Label(
                 self.manual_container,
-                text="Sem pessoas para distribuir.",
+                text="Selecione pelo menos uma pessoa para efetuar a Distribuição XFA.",
                 bg="#f7fbfb",
                 fg="#555555",
                 font=("Arial", 9),
@@ -2735,29 +2864,29 @@ class XfaDistributionWindow:
             ent = tk.Entry(row, width=12, justify="right", font=("Arial", 9))
             ent.insert(0, str(int(linha.get("reimbursement") or 0)))
             ent.pack(side="left", padx=(6, 0), ipady=2)
+            ent.bind("<KeyRelease>", self._atualizar_total_reembolso)
             self.manual_entries.append((linha, ent))
 
     def _dados_pessoas_base(self):
         selecionados = getattr(self.individual, "hoto_selecionados", set()) or set()
-        if selecionados:
-            linhas = []
-            for user in self.individual.utilizadores:
-                if user.get("id") not in selecionados:
-                    continue
-                welfare, cohesion, reimbursement = self.individual.calcular_resumo_user(user)
-                linhas.append({
-                    "posto": (user.get("posto") or "").strip(),
-                    "sobrenome": (user.get("sobrenome") or "").strip().upper(),
-                    "nome": (user.get("nome") or "").strip().upper(),
-                    "welfare": welfare,
-                    "cohesion": cohesion,
-                    "reimbursement": reimbursement,
-                    "antiguidade": (user.get("antiguidade") or "").strip(),
-                    "snr": int(user.get("snr") or 0),
-                })
-        else:
-            hoto = getattr(self, "modo_distribuicao", None) is not None and self.modo_distribuicao.get() == "hoto"
-            linhas = self.individual._dados_reembolso_para_export(hoto=hoto)
+        if not selecionados:
+            return []
+
+        linhas = []
+        for user in self.individual.utilizadores:
+            if user.get("id") not in selecionados:
+                continue
+            welfare, cohesion, reimbursement = self.individual.calcular_resumo_user(user)
+            linhas.append({
+                "posto": (user.get("posto") or "").strip(),
+                "sobrenome": (user.get("sobrenome") or "").strip().upper(),
+                "nome": (user.get("nome") or "").strip().upper(),
+                "welfare": welfare,
+                "cohesion": cohesion,
+                "reimbursement": reimbursement,
+                "antiguidade": (user.get("antiguidade") or "").strip(),
+                "snr": int(user.get("snr") or 0),
+            })
 
         linhas = [dict(l) for l in linhas if int(l.get("reimbursement") or 0) > 0]
         return linhas
@@ -2866,7 +2995,17 @@ class XfaDistributionWindow:
         linhas = self._dados_pessoas()
         if linhas is None:
             return
+        if not linhas:
+            messagebox.showwarning(
+                "Validação",
+                "Selecione pelo menos uma pessoa para efetuar a Distribuição XFA.",
+                parent=self.janela
+            )
+            self.janela.lift()
+            self.janela.focus_force()
+            return
         total_reembolsos = sum(int(l.get("reimbursement") or 0) for l in linhas)
+        self._atualizar_total_reembolso()
         total_stock = sum(d * q for d, q in stock.items())
         if total_stock < total_reembolsos:
             messagebox.showwarning("Notas insuficientes", f"Valor disponível insuficiente. Disponível: {total_stock:,} | Necessário: {total_reembolsos:,}".replace(",", "."), parent=self.janela)
