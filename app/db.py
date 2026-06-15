@@ -665,6 +665,14 @@ def set_valor_welfare(valor):
     set_setting("valor_welfare", valor)
 
 
+def get_valor_caixa():
+    return get_setting("valor_caixa", "")
+
+
+def set_valor_caixa(valor):
+    set_setting("valor_caixa", valor)
+
+
 def get_day_offs(mostrar_todos=False):
     from datetime import date
 

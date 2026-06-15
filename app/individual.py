@@ -19,6 +19,7 @@ from app.db import (
     get_welfares_mes,
     get_day_offs_mes,
     get_valor_welfare,
+    get_valor_caixa,
     get_nome_cos,
     set_welfare_individual,
     reset_welfares_individuais_mes,
@@ -67,6 +68,7 @@ class WelfareIndividualWindow:
         self.welfare_w = 70
         self.cohesion_w = 75
         self.reimbursement_w = 105
+        self.caixa_w = 85
         self.select_w = 80
 
         self.utilizadores = []
@@ -81,6 +83,7 @@ class WelfareIndividualWindow:
 
         # Caches locais para tornar a grelha muito mais leve, sobretudo com SQLite em pasta partilhada.
         self._valor_welfare_cache = 0
+        self._valor_caixa_cache = 0
         self._inicio_semana_cache = ""
         self._mensais_set = set()
         self._day_infos = []
@@ -581,6 +584,7 @@ class WelfareIndividualWindow:
         pasta partilhada.
         """
         self._valor_welfare_cache = self._ler_valor_welfare_db()
+        self._valor_caixa_cache = self._ler_valor_caixa_db()
         self._inicio_semana_cache = (get_inicio_semana() or "").strip()
 
         self._mensais_set = {
@@ -630,6 +634,13 @@ class WelfareIndividualWindow:
 
     def _ler_valor_welfare_db(self):
         raw = (get_valor_welfare() or "0").strip().replace(".", "").replace(",", "")
+        try:
+            return int(raw)
+        except ValueError:
+            return 0
+
+    def _ler_valor_caixa_db(self):
+        raw = (get_valor_caixa() or "0").strip().replace(".", "").replace(",", "")
         try:
             return int(raw)
         except ValueError:
@@ -981,6 +992,44 @@ class WelfareIndividualWindow:
     def valor_welfare_numero(self):
         return int(self._valor_welfare_cache or 0)
 
+    def valor_caixa_numero(self):
+        return int(self._valor_caixa_cache or 0)
+
+    def calcular_caixa_user(self, user):
+        valor_caixa = self.valor_caixa_numero()
+        if valor_caixa <= 0:
+            return 0
+
+        dias_caixa = 0
+        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
+        partida = user.get("_partida_date") if "_partida_date" in user else self._date_part(user.get("data_partida"))
+
+        for info in self._day_infos:
+            data_str = info["data_str"]
+
+            # Antes da chegada não conta. No próprio dia de chegada também não conta
+            # para a Caixa, conforme o exemplo: chegada dia 12 num mês de 30 dias = 18 dias.
+            if chegada and data_str <= chegada:
+                continue
+
+            # A data de partida conta para a Caixa, conforme o exemplo: partida dia 19 = 19 dias.
+            if partida and data_str > partida:
+                continue
+
+            # Dias de férias não contam para a Caixa.
+            if self.user_em_ferias_na_data(user, data_str):
+                continue
+
+            dias_caixa += 1
+
+        # Se esteve o mês civil completo, recebe exatamente o Valor Caixa definido,
+        # mesmo em meses com 28, 29 ou 31 dias. Nos restantes casos, aplica a
+        # regra solicitada: Valor Caixa / 30 x dias contabilizados.
+        if dias_caixa == self.dias_mes():
+            return valor_caixa
+
+        return int(round((valor_caixa / 30) * min(dias_caixa, 30)))
+
     def formatar_valor(self, valor):
         return f"{int(valor):,}".replace(",", ".")
 
@@ -1037,7 +1086,7 @@ class WelfareIndividualWindow:
             summary_w = 0
             unidades_por_dia = 1
         else:
-            summary_w = self.welfare_w + self.cohesion_w + self.reimbursement_w + self.select_w
+            summary_w = self.welfare_w + self.cohesion_w + self.reimbursement_w + self.caixa_w + self.select_w
             unidades_por_dia = 2
         disponivel = canvas_w - self.ident_w - summary_w - margem
         if disponivel > 0:
@@ -1113,12 +1162,12 @@ class WelfareIndividualWindow:
         dias = self.dias_mes()
         dias_w = dias * 2 * self.cell_w
         resumo_x = self.ident_w + dias_w
-        total_w = resumo_x + self.welfare_w + self.cohesion_w + self.reimbursement_w + self.select_w
+        total_w = resumo_x + self.welfare_w + self.cohesion_w + self.reimbursement_w + self.caixa_w + self.select_w
         # +2 linhas finais: totais DFAC por dia + botões/semana
         total_h = self.header_h1 + self.header_h2 + max(len(self.utilizadores) + 2, 2) * self.row_h
         self.desenhar_header_base(total_h, total_w, dias, unidades_por_dia=2)
 
-        resumo_cols = [("Welfare", self.welfare_w), (t("cohesion"), self.cohesion_w), (t("reimbursement"), self.reimbursement_w)]
+        resumo_cols = [("Welfare", self.welfare_w), (t("cohesion"), self.cohesion_w), (t("reimbursement"), self.reimbursement_w), (t("caixa"), self.caixa_w)]
         x = resumo_x
         for titulo, largura in resumo_cols:
             self.canvas.create_rectangle(x, 0, x + largura, self.header_h1 + self.header_h2, fill=COR_PRINCIPAL, outline=COR_LINHA)
@@ -1191,9 +1240,10 @@ class WelfareIndividualWindow:
                             tags=(tag,)
                         )
             welfare, cohesion, reimbursement = self.calcular_resumo_user(user)
+            caixa = self.calcular_caixa_user(user)
             x = resumo_x
-            valores = [str(welfare), str(cohesion), self.formatar_valor(reimbursement)]
-            larguras = [self.welfare_w, self.cohesion_w, self.reimbursement_w]
+            valores = [str(welfare), str(cohesion), self.formatar_valor(reimbursement), self.formatar_valor(caixa)]
+            larguras = [self.welfare_w, self.cohesion_w, self.reimbursement_w, self.caixa_w]
             for valor, largura in zip(valores, larguras):
                 # O hover pode aparecer nas colunas de resumo, porque não esconde
                 # marcações, fins de semana, Days Off ou cinzentos de inatividade.
@@ -1234,17 +1284,20 @@ class WelfareIndividualWindow:
         total_welfare = 0
         total_cohesion = 0
         total_reimbursement = 0
+        total_caixa = 0
         for user in self.utilizadores:
             w_total, c_total, r_total = self.calcular_resumo_user(user)
             total_welfare += w_total
             total_cohesion += c_total
             total_reimbursement += r_total
+            total_caixa += self.calcular_caixa_user(user)
 
         x = resumo_x
         resumo_footer = [
             (str(total_welfare), self.welfare_w),
             (str(total_cohesion), self.cohesion_w),
             (self.formatar_valor(total_reimbursement), self.reimbursement_w),
+            (self.formatar_valor(total_caixa), self.caixa_w),
             ("", self.select_w),
         ]
         for valor, largura in resumo_footer:

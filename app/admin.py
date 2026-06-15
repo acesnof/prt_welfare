@@ -8,7 +8,7 @@ from app.datepicker import DateEntry, DateTimeEntry
 from app.db import (
     db_execute, db_execute_return_id, db_one, db_rows,
     get_utilizador_acessos, set_utilizador_acessos,
-    get_valor_welfare, set_valor_welfare,
+    get_valor_welfare, set_valor_welfare, get_valor_caixa, set_valor_caixa,
     get_day_offs, get_day_off, guardar_day_off, eliminar_day_off,
     get_inicio_semana, set_inicio_semana,
     get_nome_cos, set_nome_cos,
@@ -76,6 +76,7 @@ class AdminWindow:
         self.btn_mostrar_todos = None
         self.lbl_filtro_utilizadores = None
         self.lbl_valor_welfare = None
+        self.lbl_valor_caixa = None
         self.icones_tabela = {}
         self.labels_icones_tabela = []
 
@@ -171,6 +172,27 @@ class AdminWindow:
                 font=("Arial", 10, "bold")
             )
             self.lbl_valor_welfare.pack(side="left", padx=(10, 0))
+
+            tk.Button(
+                barra_acoes,
+                text=t("box_value"),
+                bg=COR_PRINCIPAL,
+                fg="white",
+                font=("Arial", 10, "bold"),
+                relief="flat",
+                padx=14,
+                pady=6,
+                command=self.abrir_valor_caixa
+            ).pack(side="left", padx=(12, 0))
+
+            self.lbl_valor_caixa = tk.Label(
+                barra_acoes,
+                text=self.texto_valor_caixa(),
+                bg="white",
+                fg=COR_PRINCIPAL,
+                font=("Arial", 10, "bold")
+            )
+            self.lbl_valor_caixa.pack(side="left", padx=(10, 0))
 
             tk.Button(
                 barra_acoes,
@@ -405,6 +427,14 @@ class AdminWindow:
         if self.lbl_valor_welfare:
             self.lbl_valor_welfare.config(text=self.texto_valor_welfare())
 
+    def texto_valor_caixa(self):
+        valor = (get_valor_caixa() or "").strip()
+        return f"{t('current_box_value')}: {valor}" if valor else f"{t('current_box_value')}: -"
+
+    def atualizar_label_valor_caixa(self):
+        if self.lbl_valor_caixa:
+            self.lbl_valor_caixa.config(text=self.texto_valor_caixa())
+
     def abrir_valor_welfare(self):
         if self.app.trazer_janela_tipo("valor_welfare"):
             return
@@ -545,6 +575,80 @@ class AdminWindow:
             width=12,
             command=janela.destroy
         ).pack(side="left")
+
+    def abrir_valor_caixa(self):
+        if self.app.trazer_janela_tipo("valor_caixa"):
+            return
+        janela = tk.Toplevel(self.app.root)
+        aplicar_icone(janela)
+        self.app.registar_janela(janela, "valor_caixa")
+
+        janela.title(t("box_value"))
+        janela.geometry("380x190")
+        janela.resizable(False, False)
+        janela.configure(bg="white")
+        janela.grab_set()
+
+        tk.Label(
+            janela,
+            text=t("current_box_value_title"),
+            bg="white",
+            fg=COR_PRINCIPAL,
+            font=("Arial", 15, "bold")
+        ).pack(pady=(18, 12))
+
+        frame = tk.Frame(janela, bg="white", padx=30)
+        frame.pack(fill="x")
+
+        tk.Label(frame, text=t("value"), bg="white", font=("Arial", 10, "bold")).pack(anchor="w")
+        entry_valor = tk.Entry(frame, width=32)
+        entry_valor.insert(0, get_valor_caixa() or "")
+        entry_valor.pack(anchor="w", pady=(3, 14), ipady=4)
+        entry_valor.focus_set()
+
+        def guardar():
+            valor = entry_valor.get().strip()
+            if valor:
+                try:
+                    int(valor)
+                except ValueError:
+                    avisar_parent(janela, "aviso", t("validation"), t("only_numbers_welfare"))
+                    return
+
+            set_valor_caixa(valor)
+            self.atualizar_label_valor_caixa()
+            avisar_parent(janela, "info", t("saved"), t("box_value_saved"))
+            janela.destroy()
+
+        botoes = tk.Frame(janela, bg="white")
+        botoes.pack(fill="x", pady=(0, 10))
+
+        tk.Button(
+            botoes,
+            text=t("save"),
+            bg=COR_PRINCIPAL,
+            fg="white",
+            font=("Arial", 10, "bold"),
+            relief="flat",
+            width=12,
+            command=guardar
+        ).pack(side="left", padx=(75, 10))
+
+        tk.Button(
+            botoes,
+            text=t("close"),
+            bg="#777777",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            relief="flat",
+            width=12,
+            command=janela.destroy
+        ).pack(side="left", padx=10)
+
+        janela.update_idletasks()
+        x = self.janela.winfo_x() + (self.janela.winfo_width() // 2) - (janela.winfo_width() // 2)
+        y = self.janela.winfo_y() + (self.janela.winfo_height() // 2) - (janela.winfo_height() // 2)
+        janela.geometry(f"+{x}+{y}")
 
     def abrir_day_offs(self):
         if self.app.trazer_janela_tipo("days_off"):
