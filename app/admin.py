@@ -13,6 +13,7 @@ from app.db import (
     get_inicio_semana, set_inicio_semana,
     get_nome_cos, set_nome_cos,
     get_lingua, set_lingua,
+    get_horario_dfac, set_horario_dfac,
 )
 from app.security import hash_password
 from app.utils import aplicar_icone
@@ -222,6 +223,23 @@ class AdminWindow:
                 padx=14,
                 pady=5,
                 command=self.abrir_day_offs
+            ).pack(side="left", padx=(10, 0))
+
+
+
+            tk.Button(
+                barra_acoes,
+                text="Horário DFAC",
+                bg="white",
+                fg=COR_PRINCIPAL,
+                activebackground="white",
+                activeforeground=COR_PRINCIPAL,
+                font=("Arial", 10, "bold"),
+                relief="solid",
+                bd=1,
+                padx=14,
+                pady=5,
+                command=self.abrir_horario_dfac
             ).pack(side="left", padx=(10, 0))
 
             tk.Button(
@@ -654,6 +672,12 @@ class AdminWindow:
         if self.app.trazer_janela_tipo("days_off"):
             return
         DayOffWindow(self)
+
+
+    def abrir_horario_dfac(self):
+        if self.app.trazer_janela_tipo("horario_dfac"):
+            return
+        HorarioDfacWindow(self)
 
     def abrir_inicio_semana(self):
         if self.app.trazer_janela_tipo("inicio_semana"):
@@ -1275,6 +1299,149 @@ class AdminWindow:
             command=janela.destroy
         ).pack(side="left", padx=10)
 
+
+
+class HorarioDfacWindow:
+    REFEICOES = [
+        ("pequeno_almoco", "Pequeno-Almoço"),
+        ("almoco", "Almoço"),
+        ("jantar", "Jantar"),
+    ]
+    TIPOS = [
+        ("normal", "Dias normais"),
+        ("especial", "Domingo/Day Off"),
+    ]
+
+    def __init__(self, admin):
+        self.admin = admin
+        self.app = admin.app
+        self.entries = {}
+
+        self.janela = tk.Toplevel(self.app.root)
+        aplicar_icone(self.janela)
+        self.app.registar_janela(self.janela, "horario_dfac")
+        self.janela.title("Horário DFAC")
+        self.janela.geometry("620x560")
+        self.janela.minsize(620, 560)
+        self.janela.resizable(False, False)
+        self.janela.configure(bg="white")
+        self.janela.grab_set()
+
+        self.criar_layout()
+        self.centrar()
+
+    def centrar(self):
+        self.janela.update_idletasks()
+        x = self.admin.janela.winfo_x() + (self.admin.janela.winfo_width() // 2) - (self.janela.winfo_width() // 2)
+        y = self.admin.janela.winfo_y() + (self.admin.janela.winfo_height() // 2) - (self.janela.winfo_height() // 2)
+        self.janela.geometry(f"+{x}+{y}")
+
+    def criar_layout(self):
+        tk.Label(
+            self.janela,
+            text="Horário DFAC",
+            bg="white",
+            fg=COR_PRINCIPAL,
+            font=("Arial", 16, "bold")
+        ).pack(pady=(18, 4))
+
+        tk.Label(
+            self.janela,
+            text="Indique as horas no formato HH:MM. Dias normais = Segunda-feira a Sábado. Domingo e Day Off usam o horário especial.",
+            bg="white",
+            fg="#444444",
+            font=("Arial", 9),
+            wraplength=540,
+            justify="center"
+        ).pack(pady=(0, 12))
+
+        dados = get_horario_dfac()
+        wrapper = tk.Frame(self.janela, bg="white", padx=18)
+        wrapper.pack(fill="x", expand=False)
+
+        for tipo_key, tipo_label in self.TIPOS:
+            frame = tk.LabelFrame(
+                wrapper,
+                text=tipo_label,
+                bg="white",
+                fg=COR_PRINCIPAL,
+                font=("Arial", 10, "bold"),
+                padx=10,
+                pady=8
+            )
+            frame.pack(fill="x", pady=(0, 10))
+
+            tk.Label(frame, text="Refeição", bg="white", font=("Arial", 9, "bold"), width=18, anchor="w").grid(row=0, column=0, padx=4, pady=3)
+            tk.Label(frame, text="Abertura", bg="white", font=("Arial", 9, "bold"), width=12).grid(row=0, column=1, padx=4, pady=3)
+            tk.Label(frame, text="Fecho", bg="white", font=("Arial", 9, "bold"), width=12).grid(row=0, column=2, padx=4, pady=3)
+
+            for row, (ref_key, ref_label) in enumerate(self.REFEICOES, start=1):
+                tk.Label(frame, text=ref_label, bg="white", font=("Arial", 9), width=18, anchor="w").grid(row=row, column=0, padx=4, pady=3)
+
+                ent_abre = tk.Entry(frame, width=12, justify="center")
+                ent_abre.insert(0, dados[tipo_key][ref_key]["abertura"])
+                ent_abre.grid(row=row, column=1, padx=4, pady=3, ipady=3)
+
+                ent_fecha = tk.Entry(frame, width=12, justify="center")
+                ent_fecha.insert(0, dados[tipo_key][ref_key]["fecho"])
+                ent_fecha.grid(row=row, column=2, padx=4, pady=3, ipady=3)
+
+                self.entries[(tipo_key, ref_key, "abertura")] = ent_abre
+                self.entries[(tipo_key, ref_key, "fecho")] = ent_fecha
+
+        botoes = tk.Frame(self.janela, bg="white")
+        botoes.pack(fill="x", side="bottom", pady=(10, 18))
+
+        tk.Button(
+            botoes,
+            text="Gravar",
+            bg=COR_PRINCIPAL,
+            fg="white",
+            font=("Arial", 10, "bold"),
+            relief="flat",
+            width=12,
+            command=self.guardar
+        ).pack(side="left", padx=(190, 10))
+
+        tk.Button(
+            botoes,
+            text=t("close"),
+            bg="#777777",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            relief="flat",
+            width=12,
+            command=self.janela.destroy
+        ).pack(side="left", padx=10)
+
+    def _validar_hora(self, valor):
+        valor = (valor or "").strip()
+        partes = valor.split(":")
+        if len(partes) != 2:
+            return None
+        try:
+            h = int(partes[0])
+            m = int(partes[1])
+        except ValueError:
+            return None
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            return None
+        return f"{h:02d}:{m:02d}"
+
+    def guardar(self):
+        dados = {"normal": {}, "especial": {}}
+        for tipo_key, _tipo_label in self.TIPOS:
+            for ref_key, _ref_label in self.REFEICOES:
+                abertura = self._validar_hora(self.entries[(tipo_key, ref_key, "abertura")].get())
+                fecho = self._validar_hora(self.entries[(tipo_key, ref_key, "fecho")].get())
+                if not abertura or not fecho:
+                    avisar_parent(self.janela, "aviso", t("validation"), "As horas devem estar no formato HH:MM.")
+                    return
+                dados[tipo_key][ref_key] = {"abertura": abertura, "fecho": fecho}
+
+        set_horario_dfac(dados)
+        avisar_parent(self.janela, "info", t("saved"), "Horário DFAC guardado com sucesso.")
+        self.janela.destroy()
 
 
 class DayOffWindow:

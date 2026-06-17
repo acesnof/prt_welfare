@@ -20,6 +20,7 @@ from app.db import (
     get_day_offs_mes,
     get_valor_welfare,
     get_valor_caixa,
+    get_horario_dfac,
     get_nome_cos,
     set_welfare_individual,
     reset_welfares_individuais_mes,
@@ -84,6 +85,7 @@ class WelfareIndividualWindow:
         # Caches locais para tornar a grelha muito mais leve, sobretudo com SQLite em pasta partilhada.
         self._valor_welfare_cache = 0
         self._valor_caixa_cache = 0
+        self._horario_dfac_cache = {}
         self._inicio_semana_cache = ""
         self._mensais_set = set()
         self._day_infos = []
@@ -585,6 +587,7 @@ class WelfareIndividualWindow:
         """
         self._valor_welfare_cache = self._ler_valor_welfare_db()
         self._valor_caixa_cache = self._ler_valor_caixa_db()
+        self._horario_dfac_cache = get_horario_dfac()
         self._inicio_semana_cache = (get_inicio_semana() or "").strip()
 
         self._mensais_set = {
@@ -807,118 +810,139 @@ class WelfareIndividualWindow:
         except Exception:
             return None
 
-    def user_em_ferias_na_data(self, user, data_str):
-        """
-        True quando a pessoa está efetivamente de férias nessa data.
-        Usa intervalos pré-processados em memória para evitar parses repetidos.
-        """
-        user_id = user.get("id")
-        limite_regresso = 7 * 60
+    def _refeicao_key(self, refeicao):
+        if refeicao == REFEICAO_PEQUENO_ALMOCO:
+            return "pequeno_almoco"
+        if refeicao == "Almoço":
+            return "almoco"
+        if refeicao == "Jantar":
+            return "jantar"
+        return ""
 
+    def _data_especial(self, data_str, ctx=None):
+        """True apenas para Horário DFAC especial.
+
+        Para efeitos de horário DFAC:
+        - dias normais = Segunda-feira a Sábado;
+        - horário especial = Domingo ou Day Off.
+
+        Nota: isto não altera a cor/contabilização de fim de semana na grelha,
+        apenas a escolha do horário usado nas regras de chegada/partida/férias.
+        """
+        try:
+            data_obj = datetime.strptime(data_str[:10], "%Y-%m-%d").date()
+        except Exception:
+            return False
+        day_offs = self.day_offs if ctx is None else ctx.get("day_offs", set())
+        return data_obj.weekday() == 6 or data_str[:10] in day_offs
+
+    def _horario_refeicao(self, data_str, refeicao, ctx=None):
+        horario = self._horario_dfac_cache or get_horario_dfac()
+        tipo = "especial" if self._data_especial(data_str, ctx) else "normal"
+        ref_key = self._refeicao_key(refeicao)
+        dados = (((horario or {}).get(tipo) or {}).get(ref_key) or {})
+        defaults = {
+            "pequeno_almoco": ("07:00", "09:00"),
+            "almoco": ("12:00", "14:00"),
+            "jantar": ("18:00", "20:00"),
+        }
+        abertura, fecho = defaults.get(ref_key, ("00:00", "23:59"))
+        abertura = dados.get("abertura") or abertura
+        fecho = dados.get("fecho") or fecho
+        return self._to_minutes(abertura[:5]), self._to_minutes(fecho[:5])
+
+    def _tem_refeicao_por_chegada(self, data_str, chegada_min, refeicao, ctx=None):
+        # No dia da chegada, tem direito à refeição se chegar antes do fecho dessa refeição.
+        _abertura, fecho = self._horario_refeicao(data_str, refeicao, ctx)
+        return int(chegada_min or 0) < fecho
+
+    def _tem_refeicao_por_partida(self, data_str, partida_min, refeicao, ctx=None):
+        # No dia da partida, tem direito à refeição se ainda estiver na base quando essa refeição abre.
+        abertura, _fecho = self._horario_refeicao(data_str, refeicao, ctx)
+        return int(partida_min or 0) >= abertura
+
+    def _intervalo_apanha_refeicao(self, data_str, inicio_min, fim_min, refeicao, ctx=None):
+        abertura, fecho = self._horario_refeicao(data_str, refeicao, ctx)
+        return int(inicio_min or 0) < fecho and int(fim_min or 0) >= abertura
+
+    def user_em_ferias_na_data(self, user, data_str):
+        user_id = user.get("id")
         for inicio, fim in self._ferias_intervalos.get(user_id, []):
             inicio_data = inicio.date().isoformat()
             fim_data = fim.date().isoformat()
+            if inicio_data <= data_str <= fim_data:
+                return True
+        return False
 
+    def user_em_ferias_na_refeicao(self, user, data_str, refeicao):
+        """True quando esta refeição deve aparecer com F por férias.
+
+        O dia de início das férias segue a mesma regra da partida da base.
+        O dia de fim das férias segue a mesma regra da chegada à base.
+        Os horários usados são os configurados em Horário DFAC, distinguindo
+        dias normais de sábado/domingo/Day Off.
+        """
+        user_id = user.get("id")
+        for inicio, fim in self._ferias_intervalos.get(user_id, []):
+            inicio_data = inicio.date().isoformat()
+            fim_data = fim.date().isoformat()
             if data_str < inicio_data or data_str > fim_data:
                 continue
 
-            if data_str == fim_data and self._to_minutes(fim.strftime("%H:%M")) < limite_regresso:
-                return False
+            inicio_min = self._to_minutes(inicio.strftime("%H:%M"))
+            fim_min = self._to_minutes(fim.strftime("%H:%M"))
+
+            if inicio_data == fim_data == data_str:
+                return self._intervalo_apanha_refeicao(data_str, inicio_min, fim_min, refeicao)
+
+            if data_str == inicio_data:
+                return not self._tem_refeicao_por_partida(data_str, inicio_min, refeicao)
+
+            if data_str == fim_data:
+                return not self._tem_refeicao_por_chegada(data_str, fim_min, refeicao)
 
             return True
 
         return False
 
     def user_tem_pequeno_almoco_em_ferias_na_data(self, user, data_str):
-        """
-        Regras de férias para pequeno-almoço:
-        - início de férias antes das 07h00: não conta nesse dia;
-        - fim/regresso antes das 09h00: conta nesse dia;
-        - dias completos no meio do período: não contam.
-        """
-        user_id = user.get("id")
-        limite_inicio = 7 * 60
-        limite_regresso = 9 * 60
-
-        for inicio, fim in self._ferias_intervalos.get(user_id, []):
-            inicio_data = inicio.date().isoformat()
-            fim_data = fim.date().isoformat()
-
-            if data_str < inicio_data or data_str > fim_data:
-                continue
-
-            if inicio_data == fim_data == data_str:
-                if self._to_minutes(inicio.strftime("%H:%M")) < limite_inicio:
-                    return False
-                if self._to_minutes(fim.strftime("%H:%M")) >= limite_regresso:
-                    return False
-                return True
-
-            if data_str == inicio_data:
-                if self._to_minutes(inicio.strftime("%H:%M")) < limite_inicio:
-                    return False
-                return True
-
-            if data_str == fim_data:
-                return self._to_minutes(fim.strftime("%H:%M")) < limite_regresso
-
-            return False
-
-        return True
+        return not self.user_em_ferias_na_refeicao(user, data_str, REFEICAO_PEQUENO_ALMOCO)
 
     def user_ativo_na_data(self, user, data_str):
         chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
         partida = user.get("_partida_date") if "_partida_date" in user else self._date_part(user.get("data_partida"))
         if chegada and data_str < chegada:
             return False
-        # A partir do próprio dia de partida, para todos os efeitos já não conta.
-        if partida and data_str >= partida:
+        if partida and data_str > partida:
             return False
         return True
 
     def user_tem_refeicao_na_data(self, user, data_str, refeicao):
-        """
-        Regras no dia de chegada:
-        - antes das 09h00: PA, Almoço e Jantar;
-        - das 09h00 até antes das 14h00: Almoço e Jantar;
-        - das 14h00 até antes das 20h00: Jantar;
-        - a partir das 20h00: nenhuma refeição nesse dia.
-        """
-        if not self.user_ativo_na_data(user, data_str):
+        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
+        partida = user.get("_partida_date") if "_partida_date" in user else self._date_part(user.get("data_partida"))
+
+        if chegada and data_str < chegada:
+            return False
+        if partida and data_str > partida:
             return False
 
-        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
         if chegada and data_str == chegada:
-            minutos = int(user.get("_chegada_min", 0) or 0)
-            if refeicao == "Almoço":
-                return minutos < 14 * 60
-            if refeicao == "Jantar":
-                return minutos < 20 * 60
+            chegada_min = int(user.get("_chegada_min", 0) or 0)
+            if not self._tem_refeicao_por_chegada(data_str, chegada_min, refeicao):
+                return False
+
+        if partida and data_str == partida:
+            partida_min = int(user.get("_partida_min", 0) or 0)
+            if not self._tem_refeicao_por_partida(data_str, partida_min, refeicao):
+                return False
 
         return True
 
     def user_tem_pequeno_almoco_na_data(self, user, data_str):
-        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
-        partida = user.get("_partida_date") if "_partida_date" in user else self._date_part(user.get("data_partida"))
-
-        limite_chegada = 9 * 60
-
-        if chegada:
-            if data_str < chegada:
-                return False
-            if data_str == chegada:
-                # Chegada antes das 09h00 dá direito ao pequeno-almoço desse dia.
-                if int(user.get("_chegada_min", 0) or 0) >= limite_chegada:
-                    return False
-
-        if partida:
-            # A partir do próprio dia de partida, para todos os efeitos já não conta.
-            if data_str >= partida:
-                return False
-
+        if not self.user_tem_refeicao_na_data(user, data_str, REFEICAO_PEQUENO_ALMOCO):
+            return False
         if not self.user_tem_pequeno_almoco_em_ferias_na_data(user, data_str):
             return False
-
         return True
 
     def mensal_marcado(self, data_str, refeicao):
@@ -972,11 +996,9 @@ class WelfareIndividualWindow:
         cohesion = 0
         for info in self._day_infos:
             data_str = info["data_str"]
-            if self.user_em_ferias_na_data(user, data_str):
-                continue
             especial = info["especial"]
             for refeicao in REFEICOES_WELFARE:
-                if not self.user_tem_refeicao_na_data(user, data_str, refeicao):
+                if not self.user_tem_refeicao_na_data(user, data_str, refeicao) or self.user_em_ferias_na_refeicao(user, data_str, refeicao):
                     continue
                 if self.valor_efetivo(user_id, data_str, refeicao):
                     if especial:
@@ -1044,11 +1066,9 @@ class WelfareIndividualWindow:
             user_id = user["id"]
             for info in self._day_infos:
                 data_str = info["data_str"]
-                if self.user_em_ferias_na_data(user, data_str):
-                    continue
-                if self.user_tem_refeicao_na_data(user, data_str, "Almoço") and not self.valor_efetivo(user_id, data_str, "Almoço"):
+                if self.user_tem_refeicao_na_data(user, data_str, "Almoço") and not self.user_em_ferias_na_refeicao(user, data_str, "Almoço") and not self.valor_efetivo(user_id, data_str, "Almoço"):
                     almoco += 1
-                if self.user_tem_refeicao_na_data(user, data_str, "Jantar") and not self.valor_efetivo(user_id, data_str, "Jantar"):
+                if self.user_tem_refeicao_na_data(user, data_str, "Jantar") and not self.user_em_ferias_na_refeicao(user, data_str, "Jantar") and not self.valor_efetivo(user_id, data_str, "Jantar"):
                     jantar += 1
         result = (almoco, jantar, almoco + jantar)
         self._dfac_cache = (cache_key, result)
@@ -1205,18 +1225,18 @@ class WelfareIndividualWindow:
                 fim_semana = info["fim_semana"]
                 is_day_off = info["day_off"]
                 ativo_data = self.user_ativo_na_data(user, data_str)
-                ferias_data = ativo_data and self.user_em_ferias_na_data(user, data_str)
                 base_dia = COR_WEEKEND if (fim_semana or is_day_off) else COR_BRANCO
                 for idx, refeicao in enumerate(REFEICOES_WELFARE):
                     x = self.ident_w + (dia - 1) * 2 * self.cell_w + idx * self.cell_w
                     ativo_refeicao = self.user_tem_refeicao_na_data(user, data_str, refeicao)
+                    ferias_refeicao = ativo_refeicao and self.user_em_ferias_na_refeicao(user, data_str, refeicao)
                     bg_base = base_dia
                     if not ativo_refeicao:
                         bg_base = COR_INATIVO
-                    elif ferias_data:
+                    elif ferias_refeicao:
                         bg_base = COR_FERIAS
-                    marcado = ativo_refeicao and not ferias_data and self.valor_efetivo(user_id, data_str, refeicao)
-                    if ativo_refeicao and not ferias_data and not marcado:
+                    marcado = ativo_refeicao and not ferias_refeicao and self.valor_efetivo(user_id, data_str, refeicao)
+                    if ativo_refeicao and not ferias_refeicao and not marcado:
                         totais_dfac[dia][refeicao] += 1
                     chave = (user_id, data_str, refeicao)
                     if chave in self.alteracoes_pendentes:
@@ -1226,11 +1246,11 @@ class WelfareIndividualWindow:
                     else:
                         # Hover apenas nas células normais, vazias e ativas.
                         # Não cobre fins de semana/Days Off nem células cinzentas de inatividade.
-                        pode_hover = ativo_refeicao and not ferias_data and not fim_semana and not is_day_off
+                        pode_hover = ativo_refeicao and not ferias_refeicao and not fim_semana and not is_day_off
                         fill = COR_HOVER if (self.hover_row_idx == row_idx and pode_hover) else bg_base
                     tag = f"cell|{user_id}|{data_str}|{refeicao}"
                     self.canvas.create_rectangle(x, y, x + self.cell_w, y + self.row_h, fill=fill, outline=COR_LINHA, tags=(tag,))
-                    if ferias_data:
+                    if ferias_refeicao:
                         self.canvas.create_text(
                             x + self.cell_w / 2,
                             y + self.row_h / 2,
@@ -1347,7 +1367,7 @@ class WelfareIndividualWindow:
                 data_str = info["data_str"]
                 weekday = info["weekday"]
                 bg_base = COR_WEEKEND if info["especial"] else COR_BRANCO
-                ferias_data = self.user_em_ferias_na_data(user, data_str)
+                ferias_data = self.user_em_ferias_na_refeicao(user, data_str, REFEICAO_PEQUENO_ALMOCO)
                 ativo = self.user_tem_pequeno_almoco_na_data(user, data_str)
                 if not ativo:
                     bg_base = COR_FERIAS if ferias_data and self.user_ativo_na_data(user, data_str) else COR_INATIVO
@@ -1464,12 +1484,12 @@ class WelfareIndividualWindow:
                 dia = dia_info["dia"]
                 data_str = dia_info["data_str"]
                 especial = bool(dia_info["especial"])
-                ferias_data = self.user_em_ferias_na_data(user, data_str)
+                ferias_pa = self.user_em_ferias_na_refeicao(user, data_str, REFEICAO_PEQUENO_ALMOCO)
                 ativo_pa = self.user_tem_pequeno_almoco_na_data(user, data_str)
                 base = COR_WEEKEND if especial else COR_BRANCO
 
                 # Pequeno-almoço
-                if ferias_data and self.user_ativo_na_data(user, data_str):
+                if ferias_pa and self.user_ativo_na_data(user, data_str):
                     pa_fill = COR_FERIAS
                     pa_text = "F"
                 elif not ativo_pa:
@@ -1491,7 +1511,8 @@ class WelfareIndividualWindow:
 
                 for key, refeicao in (("al", "Almoço"), ("ja", "Jantar")):
                     ativo_refeicao = self.user_tem_refeicao_na_data(user, data_str, refeicao)
-                    if ferias_data and ativo_refeicao:
+                    ferias_refeicao = ativo_refeicao and self.user_em_ferias_na_refeicao(user, data_str, refeicao)
+                    if ferias_refeicao:
                         fill = COR_FERIAS
                         text = "F"
                     elif not ativo_refeicao:
@@ -1706,68 +1727,64 @@ class WelfareIndividualWindow:
 
     def _user_em_ferias_na_data_ctx(self, user, data_str, ctx):
         user_id = user.get("id")
-        limite_regresso = 7 * 60
+        for inicio, fim in ctx.get("ferias_intervalos", {}).get(user_id, []):
+            inicio_data = inicio.date().isoformat()
+            fim_data = fim.date().isoformat()
+            if inicio_data <= data_str <= fim_data:
+                return True
+        return False
+
+    def _user_em_ferias_na_refeicao_ctx(self, user, data_str, refeicao, ctx):
+        user_id = user.get("id")
         for inicio, fim in ctx.get("ferias_intervalos", {}).get(user_id, []):
             inicio_data = inicio.date().isoformat()
             fim_data = fim.date().isoformat()
             if data_str < inicio_data or data_str > fim_data:
                 continue
-            if data_str == fim_data and self._to_minutes(fim.strftime("%H:%M")) < limite_regresso:
-                return False
+
+            inicio_min = self._to_minutes(inicio.strftime("%H:%M"))
+            fim_min = self._to_minutes(fim.strftime("%H:%M"))
+
+            if inicio_data == fim_data == data_str:
+                return self._intervalo_apanha_refeicao(data_str, inicio_min, fim_min, refeicao, ctx)
+
+            if data_str == inicio_data:
+                return not self._tem_refeicao_por_partida(data_str, inicio_min, refeicao, ctx)
+
+            if data_str == fim_data:
+                return not self._tem_refeicao_por_chegada(data_str, fim_min, refeicao, ctx)
+
             return True
         return False
 
     def _user_tem_pequeno_almoco_em_ferias_na_data_ctx(self, user, data_str, ctx):
-        user_id = user.get("id")
-        limite_inicio = 7 * 60
-        limite_regresso = 9 * 60
-        for inicio, fim in ctx.get("ferias_intervalos", {}).get(user_id, []):
-            inicio_data = inicio.date().isoformat()
-            fim_data = fim.date().isoformat()
-            if data_str < inicio_data or data_str > fim_data:
-                continue
-            if inicio_data == fim_data == data_str:
-                if self._to_minutes(inicio.strftime("%H:%M")) < limite_inicio:
-                    return False
-                if self._to_minutes(fim.strftime("%H:%M")) >= limite_regresso:
-                    return False
-                return True
-            if data_str == inicio_data:
-                if self._to_minutes(inicio.strftime("%H:%M")) < limite_inicio:
-                    return False
-                return True
-            if data_str == fim_data:
-                return self._to_minutes(fim.strftime("%H:%M")) < limite_regresso
-            return False
-        return True
+        return not self._user_em_ferias_na_refeicao_ctx(user, data_str, REFEICAO_PEQUENO_ALMOCO, ctx)
 
     def _user_tem_pequeno_almoco_na_data_ctx(self, user, data_str, ctx):
-        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
-        partida = user.get("_partida_date") if "_partida_date" in user else self._date_part(user.get("data_partida"))
-        limite_chegada = 9 * 60
-
-        if chegada:
-            if data_str < chegada:
-                return False
-            if data_str == chegada and int(user.get("_chegada_min", 0) or 0) >= limite_chegada:
-                return False
-        if partida and data_str >= partida:
+        if not self._user_tem_refeicao_na_data_ctx(user, data_str, REFEICAO_PEQUENO_ALMOCO, ctx):
             return False
         if not self._user_tem_pequeno_almoco_em_ferias_na_data_ctx(user, data_str, ctx):
             return False
         return True
 
     def _user_tem_refeicao_na_data_ctx(self, user, data_str, refeicao, ctx):
-        if not self.user_ativo_na_data(user, data_str):
+        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
+        partida = user.get("_partida_date") if "_partida_date" in user else self._date_part(user.get("data_partida"))
+
+        if chegada and data_str < chegada:
+            return False
+        if partida and data_str > partida:
             return False
 
-        chegada = user.get("_chegada_date") if "_chegada_date" in user else self._date_part(user.get("data_chegada"))
         if chegada and data_str == chegada:
-            minutos = int(user.get("_chegada_min", 0) or 0)
-            if refeicao == "Almoço":
-                return minutos < 14 * 60
-            if refeicao == "Jantar":
-                return minutos < 20 * 60
+            chegada_min = int(user.get("_chegada_min", 0) or 0)
+            if not self._tem_refeicao_por_chegada(data_str, chegada_min, refeicao, ctx):
+                return False
+
+        if partida and data_str == partida:
+            partida_min = int(user.get("_partida_min", 0) or 0)
+            if not self._tem_refeicao_por_partida(data_str, partida_min, refeicao, ctx):
+                return False
 
         return True
 
@@ -1803,12 +1820,11 @@ class WelfareIndividualWindow:
                 if self._valor_pequeno_almoco_ctx(user, data_str, ctx):
                     pequeno_almoco += 1
 
-                if not self._user_em_ferias_na_data_ctx(user, data_str, ctx):
-                    user_id = user["id"]
-                    if self._user_tem_refeicao_na_data_ctx(user, data_str, "Almoço", ctx) and not self._valor_efetivo_ctx(user_id, data_str, "Almoço", ctx):
-                        almoco_dfac += 1
-                    if self._user_tem_refeicao_na_data_ctx(user, data_str, "Jantar", ctx) and not self._valor_efetivo_ctx(user_id, data_str, "Jantar", ctx):
-                        jantar_dfac += 1
+                user_id = user["id"]
+                if self._user_tem_refeicao_na_data_ctx(user, data_str, "Almoço", ctx) and not self._user_em_ferias_na_refeicao_ctx(user, data_str, "Almoço", ctx) and not self._valor_efetivo_ctx(user_id, data_str, "Almoço", ctx):
+                    almoco_dfac += 1
+                if self._user_tem_refeicao_na_data_ctx(user, data_str, "Jantar", ctx) and not self._user_em_ferias_na_refeicao_ctx(user, data_str, "Jantar", ctx) and not self._valor_efetivo_ctx(user_id, data_str, "Jantar", ctx):
+                    jantar_dfac += 1
 
             totais.append({
                 "data": data_ref,
@@ -1896,11 +1912,11 @@ class WelfareIndividualWindow:
                 data_str = dia_info["data_str"]
                 ctx = self._ctx_para_data(datetime.strptime(data_str, "%Y-%m-%d").date())
                 especial = bool(dia_info["especial"])
-                ferias_data = self._user_em_ferias_na_data_ctx(user, data_str, ctx)
+                ferias_pa = self._user_em_ferias_na_refeicao_ctx(user, data_str, REFEICAO_PEQUENO_ALMOCO, ctx)
                 ativo_pa = self._user_tem_pequeno_almoco_na_data_ctx(user, data_str, ctx)
                 base = COR_WEEKEND if especial else COR_BRANCO
 
-                if ferias_data and self.user_ativo_na_data(user, data_str):
+                if ferias_pa and self.user_ativo_na_data(user, data_str):
                     pa_fill = COR_FERIAS
                     pa_text = "F"
                 elif not ativo_pa:
@@ -1918,7 +1934,8 @@ class WelfareIndividualWindow:
 
                 for key, refeicao in (("al", "Almoço"), ("ja", "Jantar")):
                     ativo_refeicao = self._user_tem_refeicao_na_data_ctx(user, data_str, refeicao, ctx)
-                    if ferias_data and ativo_refeicao:
+                    ferias_refeicao = ativo_refeicao and self._user_em_ferias_na_refeicao_ctx(user, data_str, refeicao, ctx)
+                    if ferias_refeicao:
                         fill = COR_FERIAS
                         text = "F"
                     elif not ativo_refeicao:
@@ -2073,14 +2090,12 @@ class WelfareIndividualWindow:
             datas = []
             for dia in range(1, self.dias_mes() + 1):
                 data_str = f"{self.ano_atual}-{self.mes_atual:02d}-{dia:02d}"
-                if self.user_em_ferias_na_data(user, data_str):
-                    continue
                 if self.is_fim_semana_ou_day_off(data_str):
                     continue
 
                 tem_coesao = False
                 for refeicao in REFEICOES_WELFARE:
-                    if self.user_tem_refeicao_na_data(user, data_str, refeicao) and self.valor_efetivo(user["id"], data_str, refeicao):
+                    if self.user_tem_refeicao_na_data(user, data_str, refeicao) and not self.user_em_ferias_na_refeicao(user, data_str, refeicao) and self.valor_efetivo(user["id"], data_str, refeicao):
                         tem_coesao = True
                         break
 
@@ -2586,7 +2601,7 @@ class WelfareIndividualWindow:
             return
         user = self.utilizadores[row_idx]
         data_str = f"{self.ano_atual}-{self.mes_atual:02d}-{dia_idx:02d}"
-        if not self.user_tem_refeicao_na_data(user, data_str, refeicao) or self.user_em_ferias_na_data(user, data_str):
+        if not self.user_tem_refeicao_na_data(user, data_str, refeicao) or self.user_em_ferias_na_refeicao(user, data_str, refeicao):
             return
         chave = (user["id"], data_str, refeicao)
         atual = self.valor_efetivo(user["id"], data_str, refeicao)

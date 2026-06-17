@@ -137,6 +137,20 @@ class FeriasWindow:
         corpo = tk.Frame(self.janela, bg="white", padx=18, pady=16)
         corpo.pack(fill="both", expand=True)
 
+        info_horas = tk.Label(
+            corpo,
+            text="A hora de partida e a hora de chegada que coloca nas férias, é relativamente à saída da base pois essa hora influencia na marcação das refeições.",
+            bg="#f7f4a8",
+            fg="#111111",
+            font=("Arial", 10, "bold"),
+            anchor="w",
+            justify="left",
+            padx=12,
+            pady=8,
+            wraplength=1180
+        )
+        info_horas.pack(fill="x", pady=(0, 10))
+
         barra = tk.Frame(corpo, bg="white")
         barra.pack(fill="x", pady=(0, 10))
 

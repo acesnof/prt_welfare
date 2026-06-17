@@ -1,4 +1,5 @@
 import calendar
+import json
 import sqlite3
 
 from app.config import DB_PATH, MASTER_NIM, MASTER_PASSWORD, TIPOS_ACESSO
@@ -672,6 +673,44 @@ def get_valor_caixa():
 def set_valor_caixa(valor):
     set_setting("valor_caixa", valor)
 
+
+
+DEFAULT_HORARIO_DFAC = {
+    "normal": {
+        "pequeno_almoco": {"abertura": "07:00", "fecho": "09:00"},
+        "almoco": {"abertura": "12:00", "fecho": "14:00"},
+        "jantar": {"abertura": "18:00", "fecho": "20:00"},
+    },
+    "especial": {
+        "pequeno_almoco": {"abertura": "07:00", "fecho": "09:00"},
+        "almoco": {"abertura": "12:00", "fecho": "14:00"},
+        "jantar": {"abertura": "18:00", "fecho": "20:00"},
+    },
+}
+
+
+def get_horario_dfac():
+    raw = get_setting("horario_dfac", "")
+    if not raw:
+        return json.loads(json.dumps(DEFAULT_HORARIO_DFAC))
+    try:
+        dados = json.loads(raw)
+    except Exception:
+        return json.loads(json.dumps(DEFAULT_HORARIO_DFAC))
+
+    # Garante sempre todas as chaves, mesmo em bases antigas/incompletas.
+    resultado = json.loads(json.dumps(DEFAULT_HORARIO_DFAC))
+    for tipo in ("normal", "especial"):
+        for refeicao in ("pequeno_almoco", "almoco", "jantar"):
+            for campo in ("abertura", "fecho"):
+                valor = (((dados or {}).get(tipo) or {}).get(refeicao) or {}).get(campo)
+                if isinstance(valor, str) and valor.strip():
+                    resultado[tipo][refeicao][campo] = valor.strip()[:5]
+    return resultado
+
+
+def set_horario_dfac(dados):
+    set_setting("horario_dfac", json.dumps(dados, ensure_ascii=False))
 
 def get_day_offs(mostrar_todos=False):
     from datetime import date
