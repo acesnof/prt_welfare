@@ -152,6 +152,7 @@ class PRTWelfareApp:
         ficheiros.add("editar.png")
         ficheiros.add("impressora.png")
         ficheiros.add("cog.png")
+        ficheiros.add("favicon.ico")
 
         for ficheiro in ficheiros:
             caminho = os.path.join(DOCS_DIR, ficheiro)
@@ -168,6 +169,8 @@ class PRTWelfareApp:
                 img.thumbnail((18, 18), Image.LANCZOS)
             elif ficheiro == "cog.png":
                 img.thumbnail((28, 28), Image.LANCZOS)
+            elif ficheiro == "favicon.ico":
+                img.thumbnail((14, 14), Image.LANCZOS)
             else:
                 img.thumbnail((24, 24), Image.LANCZOS)
 
@@ -622,13 +625,30 @@ class PRTWelfareApp:
         )
         notas.grid(row=7, column=0, columnspan=7, sticky="nsew")
 
+        frame_versao = tk.Frame(notas, bg="white")
+        frame_versao.pack(side="left", padx=(8, 20), pady=15)
+
+        img_app = self.imagens_cache.get("favicon.ico")
+        if img_app:
+            lbl_icone_app = tk.Label(frame_versao, image=img_app, bg="white")
+            lbl_icone_app.image = img_app
+            lbl_icone_app.pack(side="left", padx=(0, 4))
+
+        tk.Label(
+            frame_versao,
+            text="PRT Welfare v1.0 @ dev by SCh Tm F. Fonseca | 2026",
+            bg="white",
+            fg="#333333",
+            font=("Arial", 8)
+        ).pack(side="left")
+
         tk.Label(
             notas,
             text=t("notes"),
             bg="white",
             fg="black",
             font=("Arial", 10, "bold")
-        ).pack(side="left", padx=(260, 80))
+        ).pack(side="left", padx=(80, 80))
 
         self.criar_legenda(notas, "Welfare", "cooking.png")
         self.criar_legenda(notas, "Aniversário", "cake.png")
