@@ -49,6 +49,7 @@ COR_PARTIDA = "#ffbbbb"
 COR_HOVER = "#fff2cc"
 COR_HOVER_MARCADO = "#c40000"
 COR_ALTERACAO = "#a5fa96"
+COR_REEMBOLSO_FINAL_BG = "#caffc4"
 
 REFEICOES_WELFARE = ["Almoço", "Jantar"]
 REFEICAO_PEQUENO_ALMOCO = "Pequeno-Almoço"
@@ -70,6 +71,7 @@ class WelfareIndividualWindow:
         self.cohesion_w = 75
         self.reimbursement_w = 105
         self.caixa_w = 85
+        self.reembolso_final_w = 115
         self.select_w = 80
 
         self.utilizadores = []
@@ -1106,7 +1108,7 @@ class WelfareIndividualWindow:
             summary_w = 0
             unidades_por_dia = 1
         else:
-            summary_w = self.welfare_w + self.cohesion_w + self.reimbursement_w + self.caixa_w + self.select_w
+            summary_w = self.welfare_w + self.cohesion_w + self.reimbursement_w + self.caixa_w + self.reembolso_final_w + self.select_w
             unidades_por_dia = 2
         disponivel = canvas_w - self.ident_w - summary_w - margem
         if disponivel > 0:
@@ -1182,12 +1184,12 @@ class WelfareIndividualWindow:
         dias = self.dias_mes()
         dias_w = dias * 2 * self.cell_w
         resumo_x = self.ident_w + dias_w
-        total_w = resumo_x + self.welfare_w + self.cohesion_w + self.reimbursement_w + self.caixa_w + self.select_w
-        # +2 linhas finais: totais DFAC por dia + botões/semana
-        total_h = self.header_h1 + self.header_h2 + max(len(self.utilizadores) + 2, 2) * self.row_h
+        total_w = resumo_x + self.welfare_w + self.cohesion_w + self.reimbursement_w + self.caixa_w + self.reembolso_final_w + self.select_w
+        # +3 linhas finais: totais DFAC por dia + soma dinâmica da seleção + botões/semana
+        total_h = self.header_h1 + self.header_h2 + max(len(self.utilizadores) + 3, 3) * self.row_h
         self.desenhar_header_base(total_h, total_w, dias, unidades_por_dia=2)
 
-        resumo_cols = [("Welfare", self.welfare_w), (t("cohesion"), self.cohesion_w), (t("reimbursement"), self.reimbursement_w), (t("caixa"), self.caixa_w)]
+        resumo_cols = [("Welfare", self.welfare_w), (t("cohesion"), self.cohesion_w), (t("reimbursement"), self.reimbursement_w), (t("caixa"), self.caixa_w), ("Reembolso Final", self.reembolso_final_w)]
         x = resumo_x
         for titulo, largura in resumo_cols:
             self.canvas.create_rectangle(x, 0, x + largura, self.header_h1 + self.header_h2, fill=COR_PRINCIPAL, outline=COR_LINHA)
@@ -1261,13 +1263,18 @@ class WelfareIndividualWindow:
                         )
             welfare, cohesion, reimbursement = self.calcular_resumo_user(user)
             caixa = self.calcular_caixa_user(user)
+            reembolso_final = max(0, int(reimbursement or 0) - int(caixa or 0))
             x = resumo_x
-            valores = [str(welfare), str(cohesion), self.formatar_valor(reimbursement), self.formatar_valor(caixa)]
-            larguras = [self.welfare_w, self.cohesion_w, self.reimbursement_w, self.caixa_w]
-            for valor, largura in zip(valores, larguras):
-                # O hover pode aparecer nas colunas de resumo, porque não esconde
-                # marcações, fins de semana, Days Off ou cinzentos de inatividade.
-                fill_resumo = COR_HOVER if self.hover_row_idx == row_idx else COR_RESUMO
+            valores = [str(welfare), str(cohesion), self.formatar_valor(reimbursement), self.formatar_valor(caixa), self.formatar_valor(reembolso_final)]
+            larguras = [self.welfare_w, self.cohesion_w, self.reimbursement_w, self.caixa_w, self.reembolso_final_w]
+            linha_selecionada = user_id in self.hoto_selecionados
+            for idx_resumo, (valor, largura) in enumerate(zip(valores, larguras)):
+                # A coluna Reembolso Final só fica verde quando a linha está selecionada.
+                # As restantes colunas mantêm o hover normal.
+                if idx_resumo == 4 and linha_selecionada:
+                    fill_resumo = COR_REEMBOLSO_FINAL_BG
+                else:
+                    fill_resumo = COR_HOVER if self.hover_row_idx == row_idx else COR_RESUMO
                 self.canvas.create_rectangle(x, y, x + largura, y + self.row_h, fill=fill_resumo, outline=COR_LINHA)
                 self.canvas.create_text(x + largura / 2, y + self.row_h / 2, text=valor, fill="#111111", font=("Arial", 9, "bold"))
                 x += largura
@@ -1305,12 +1312,15 @@ class WelfareIndividualWindow:
         total_cohesion = 0
         total_reimbursement = 0
         total_caixa = 0
+        total_reembolso_final = 0
         for user in self.utilizadores:
             w_total, c_total, r_total = self.calcular_resumo_user(user)
             total_welfare += w_total
             total_cohesion += c_total
             total_reimbursement += r_total
-            total_caixa += self.calcular_caixa_user(user)
+            caixa_user = self.calcular_caixa_user(user)
+            total_caixa += caixa_user
+            total_reembolso_final += max(0, int(r_total or 0) - int(caixa_user or 0))
 
         x = resumo_x
         resumo_footer = [
@@ -1318,6 +1328,7 @@ class WelfareIndividualWindow:
             (str(total_cohesion), self.cohesion_w),
             (self.formatar_valor(total_reimbursement), self.reimbursement_w),
             (self.formatar_valor(total_caixa), self.caixa_w),
+            (self.formatar_valor(total_reembolso_final), self.reembolso_final_w),
             ("", self.select_w),
         ]
         for valor, largura in resumo_footer:
@@ -1332,7 +1343,56 @@ class WelfareIndividualWindow:
                 )
             x += largura
 
-        y_semana = y_total + self.row_h
+        # Linha dinâmica: soma apenas das linhas selecionadas na coluna Selecionar.
+        y_selecionado = y_total + self.row_h
+        self.canvas.create_rectangle(0, y_selecionado, self.ident_w, y_selecionado + self.row_h, fill=COR_REEMBOLSO_FINAL_BG, outline=COR_LINHA)
+        self.canvas.create_text(10, y_selecionado + self.row_h / 2, text="TOTAL SELECIONADO", anchor="w", fill=COR_PRINCIPAL, font=("Arial", 10, "bold"))
+
+        # Mantém as colunas dos dias vazias nesta linha para não confundir com o TOTAL DFAC diário.
+        for info in self._day_infos:
+            dia = info["dia"]
+            for idx in range(2):
+                x_dia = self.ident_w + (dia - 1) * 2 * self.cell_w + idx * self.cell_w
+                self.canvas.create_rectangle(x_dia, y_selecionado, x_dia + self.cell_w, y_selecionado + self.row_h, fill=COR_TOTAL, outline=COR_LINHA)
+
+        sel_welfare = 0
+        sel_cohesion = 0
+        sel_reimbursement = 0
+        sel_caixa = 0
+        sel_reembolso_final = 0
+        for user in self.utilizadores:
+            if user.get("id") not in self.hoto_selecionados:
+                continue
+            w_total, c_total, r_total = self.calcular_resumo_user(user)
+            caixa_user = self.calcular_caixa_user(user)
+            sel_welfare += w_total
+            sel_cohesion += c_total
+            sel_reimbursement += r_total
+            sel_caixa += caixa_user
+            sel_reembolso_final += max(0, int(r_total or 0) - int(caixa_user or 0))
+
+        x = resumo_x
+        resumo_selecionado = [
+            (str(sel_welfare), self.welfare_w),
+            (str(sel_cohesion), self.cohesion_w),
+            (self.formatar_valor(sel_reimbursement), self.reimbursement_w),
+            (self.formatar_valor(sel_caixa), self.caixa_w),
+            (self.formatar_valor(sel_reembolso_final), self.reembolso_final_w),
+            ("", self.select_w),
+        ]
+        for valor, largura in resumo_selecionado:
+            self.canvas.create_rectangle(x, y_selecionado, x + largura, y_selecionado + self.row_h, fill=COR_REEMBOLSO_FINAL_BG, outline=COR_LINHA)
+            if valor:
+                self.canvas.create_text(
+                    x + largura / 2,
+                    y_selecionado + self.row_h / 2,
+                    text=valor,
+                    fill=COR_PRINCIPAL,
+                    font=("Arial", 10, "bold")
+                )
+            x += largura
+
+        y_semana = y_selecionado + self.row_h
         self.desenhar_linha_semanas(
             y_semana=y_semana,
             dias=dias,
@@ -2669,6 +2729,7 @@ class XfaDistributionWindow:
         self.manual_mode = False
         self.manual_entries = []
         self.manual_panel = None
+        self.tipo_valor_distribuicao = tk.StringVar(value="reembolso")
         self.criar_layout()
 
     def criar_layout(self):
@@ -2712,6 +2773,39 @@ class XfaDistributionWindow:
         )
         self.lbl_total_notas.pack(anchor="w", fill="x", pady=(12, 2))
         self._atualizar_total_notas()
+
+        escolha_valor = tk.LabelFrame(
+            painel,
+            text="Valor a distribuir",
+            bg="#f7fbfb",
+            fg=COR_PRINCIPAL,
+            font=("Arial", 9, "bold"),
+            padx=8,
+            pady=6,
+        )
+        escolha_valor.pack(anchor="w", fill="x", pady=(12, 4))
+
+        tk.Radiobutton(
+            escolha_valor,
+            text="Reembolso",
+            variable=self.tipo_valor_distribuicao,
+            value="reembolso",
+            bg="#f7fbfb",
+            activebackground="#f7fbfb",
+            font=("Arial", 9, "bold"),
+            command=self._on_tipo_valor_distribuicao_change,
+        ).pack(anchor="w")
+
+        tk.Radiobutton(
+            escolha_valor,
+            text="Reembolso Final",
+            variable=self.tipo_valor_distribuicao,
+            value="final",
+            bg="#f7fbfb",
+            activebackground="#f7fbfb",
+            font=("Arial", 9, "bold"),
+            command=self._on_tipo_valor_distribuicao_change,
+        ).pack(anchor="w")
 
         self.lbl_total_reembolso = tk.Label(
             painel,
@@ -2774,7 +2868,7 @@ class XfaDistributionWindow:
         self.tabela = ttk.Treeview(tabela_frame, columns=colunas, show="headings")
         headers = {
             "identificacao": "Posto e Sobrenome",
-            "reembolso": "Reembolso",
+            "reembolso": "Valor",
             "10000": "10000",
             "5000": "5000",
             "2000": "2000",
@@ -2793,6 +2887,7 @@ class XfaDistributionWindow:
         sy.grid(row=0, column=1, sticky="ns")
         sx.grid(row=1, column=0, sticky="ew")
         self.tabela.bind("<ButtonRelease-1>", self.toggle_linha)
+        self._atualizar_cabecalho_valor()
 
     def _criar_label_nota(self, parent, denom):
         caminho = DOCS_DIR + f"/{denom}.png"
@@ -2857,10 +2952,19 @@ class XfaDistributionWindow:
             return
         total = self._total_reembolso_atual()
         self.lbl_total_reembolso.config(
-            text=f"Total Reembolso: {self.individual.formatar_valor(total)} XAF"
+            text=f"{self._label_total_reembolso()}: {self.individual.formatar_valor(total)} XAF"
         )
 
-    def _on_modo_distribuicao_change(self):
+    def _label_total_reembolso(self):
+        return "Total Reembolso Final" if self.tipo_valor_distribuicao.get() == "final" else "Total Reembolso"
+
+    def _atualizar_cabecalho_valor(self):
+        if hasattr(self, "tabela"):
+            titulo = "Reembolso Final" if self.tipo_valor_distribuicao.get() == "final" else "Reembolso"
+            self.tabela.heading("reembolso", text=titulo)
+
+    def _on_tipo_valor_distribuicao_change(self):
+        self._atualizar_cabecalho_valor()
         self._atualizar_manual_if_active()
         self._atualizar_total_reembolso()
 
@@ -2945,13 +3049,19 @@ class XfaDistributionWindow:
             if user.get("id") not in selecionados:
                 continue
             welfare, cohesion, reimbursement = self.individual.calcular_resumo_user(user)
+            caixa = self.individual.calcular_caixa_user(user)
+            reembolso_final = max(0, int(reimbursement or 0) - int(caixa or 0))
+            valor_distribuir = reembolso_final if self.tipo_valor_distribuicao.get() == "final" else reimbursement
             linhas.append({
                 "posto": (user.get("posto") or "").strip(),
                 "sobrenome": (user.get("sobrenome") or "").strip().upper(),
                 "nome": (user.get("nome") or "").strip().upper(),
                 "welfare": welfare,
                 "cohesion": cohesion,
-                "reimbursement": reimbursement,
+                "reimbursement": valor_distribuir,
+                "reimbursement_original": reimbursement,
+                "caixa": caixa,
+                "reembolso_final": reembolso_final,
                 "antiguidade": (user.get("antiguidade") or "").strip(),
                 "snr": int(user.get("snr") or 0),
             })
@@ -3001,60 +3111,252 @@ class XfaDistributionWindow:
         sobrenome = (linha.get("sobrenome") or "").strip().upper()
         return f"{posto} {sobrenome}".strip()
 
-    def _calcular_distribuicao_equilibrada(self, linhas, stock):
-        """Distribui notas por ronda, de notas maiores para menores.
+    def _combo_dp_para_valor(self, valor, stock, preferencia="baixas"):
+        """Procura uma combinação exata para um valor com o stock disponível.
 
-        A prioridade é que as pessoas recebam padrões de notas o mais iguais
-        possível. Por isso, para cada denominação, só depois de tentar dar uma
-        nota a todos os militares elegíveis é que passa à ronda seguinte. Dentro
-        de cada ronda, começa por quem tem maior valor ainda por receber.
+        A primeira prioridade é sempre conseguir fechar o valor. A preferência
+        pelas notas mais baixas é usada apenas para escolher entre combinações
+        possíveis.
         """
         denoms = self.DENOMINACOES
-        resultados = []
-        for idx, linha in enumerate(linhas):
+        if valor <= 0:
+            return {d: 0 for d in denoms}
+        if valor % 500 != 0:
+            return None
+
+        alvo = valor // 500
+        unidades = {d: d // 500 for d in denoms}
+
+        opcoes_por_denom = []
+        for d in denoms:
+            max_qtd = min(int(stock.get(d, 0) or 0), alvo // unidades[d])
+            opcoes_por_denom.append((d, max_qtd))
+
+        dp = {0: ((0, 0), {d: 0 for d in denoms})}
+
+        for d, max_qtd in opcoes_por_denom:
+            u = unidades[d]
+            novo = {}
+            for soma, (score_atual, combo_atual) in dp.items():
+                for qtd in range(max_qtd + 1):
+                    nsoma = soma + qtd * u
+                    if nsoma > alvo:
+                        break
+
+                    combo = dict(combo_atual)
+                    combo[d] = qtd
+
+                    if preferencia == "baixas":
+                        peso = {500: 1, 1000: 2, 2000: 4, 5000: 10, 10000: 20}.get(d, d // 500)
+                    elif preferencia == "altas":
+                        peso = {10000: 1, 5000: 2, 2000: 5, 1000: 10, 500: 20}.get(d, d // 500)
+                    else:
+                        peso = 1
+
+                    nscore = (score_atual[0] + qtd * peso, score_atual[1] + qtd)
+                    atual = novo.get(nsoma)
+                    if atual is None or nscore < atual[0]:
+                        novo[nsoma] = (nscore, combo)
+
+            dp = novo
+            if not dp:
+                return None
+
+        if alvo not in dp:
+            return None
+        return dp[alvo][1]
+
+    def _combo_dp_proporcional(self, valor, stock, target, preferir_baixas=True):
+        """Escolhe uma combinação exata aproximando a quota proporcional.
+
+        Exemplo da lógica: se uma pessoa recebe cerca de 50% do valor de outra,
+        tenta receber também cerca de 50% das notas de cada tipo, sempre que isso
+        seja possível e sem deixar de fechar o valor.
+        """
+        denoms = self.DENOMINACOES
+        if valor <= 0:
+            return {d: 0 for d in denoms}
+        if valor % 500 != 0:
+            return None
+
+        alvo = valor // 500
+        unidades = {d: d // 500 for d in denoms}
+        ranks_baixas = {500: 0, 1000: 1, 2000: 2, 5000: 3, 10000: 4}
+
+        dp = {0: ((0.0, 0.0, 0), {d: 0 for d in denoms})}
+
+        for d in denoms:
+            max_qtd = min(int(stock.get(d, 0) or 0), alvo // unidades[d])
+            u = unidades[d]
+            novo = {}
+
+            for soma, (score_atual, combo_atual) in dp.items():
+                for qtd in range(max_qtd + 1):
+                    nsoma = soma + qtd * u
+                    if nsoma > alvo:
+                        break
+
+                    combo = dict(combo_atual)
+                    combo[d] = qtd
+
+                    esperado = float(target.get(d, 0) or 0)
+                    # Penalização proporcional: quanto mais distante da quota,
+                    # pior. Quando a quota é zero, qualquer uso fica penalizado.
+                    if esperado > 0:
+                        desvio = ((qtd - esperado) / max(1.0, esperado)) ** 2
+                    else:
+                        desvio = float(qtd * qtd)
+
+                    # Preferência suave por notas baixas. É secundária: só decide
+                    # entre combinações com equilíbrio semelhante.
+                    if preferir_baixas:
+                        pref = qtd * ranks_baixas.get(d, 0) * 0.0001
+                    else:
+                        pref = -qtd * ranks_baixas.get(d, 0) * 0.0001
+
+                    nscore = (
+                        score_atual[0] + desvio,
+                        score_atual[1] + pref,
+                        score_atual[2] + qtd,
+                    )
+                    atual = novo.get(nsoma)
+                    if atual is None or nscore < atual[0]:
+                        novo[nsoma] = (nscore, combo)
+
+            dp = novo
+            if not dp:
+                return None
+
+        if alvo not in dp:
+            return None
+        return dp[alvo][1]
+
+    def _avaliar_distribuicao(self, resultados, stock_inicial, stock_final, falhas):
+        """Pontua uma distribuição: completar primeiro, equilíbrio depois."""
+        total_falhas = len(falhas)
+        total_amount = sum(int(item.get("amount") or 0) for item in resultados)
+        denoms = self.DENOMINACOES
+
+        # Equilíbrio por percentagem: cada pessoa deve receber uma proporção de
+        # notas parecida com a sua proporção no valor total a pagar.
+        equilibrio = 0.0
+        for d in denoms:
+            total_usado_d = sum(int(item.get("combo", {}).get(d, 0) or 0) for item in resultados)
+            if total_usado_d <= 0 or total_amount <= 0:
+                continue
+            for item in resultados:
+                amount = int(item.get("amount") or 0)
+                esperado = total_usado_d * (amount / total_amount) if total_amount else 0
+                atual = int(item.get("combo", {}).get(d, 0) or 0)
+                if esperado > 0:
+                    equilibrio += ((atual - esperado) / max(1.0, esperado)) ** 2
+                elif atual:
+                    equilibrio += atual * atual
+
+        # Penaliza valores por fechar.
+        restante = sum(int(item.get("remaining") or 0) for item in resultados)
+
+        # Preferência suave: entre soluções igualmente boas, usar mais notas
+        # baixas e deixar mais notas altas disponíveis.
+        notas_altas_sobra = stock_final.get(10000, 0) + stock_final.get(5000, 0)
+        notas_baixas_sobra = stock_final.get(500, 0) + stock_final.get(1000, 0)
+        preferencia_sobra = notas_baixas_sobra - notas_altas_sobra
+
+        return (
+            total_falhas,
+            restante,
+            equilibrio,
+            preferencia_sobra,
+        )
+
+    def _calcular_distribuicao_com_estrategia(self, linhas, stock, ordem="maior", preferir_baixas=True):
+        denoms = self.DENOMINACOES
+        if ordem == "menor":
+            linhas_ordenadas = sorted(enumerate(linhas), key=lambda x: (int(x[1].get("reimbursement") or 0), x[0]))
+        elif ordem == "original":
+            linhas_ordenadas = list(enumerate(linhas))
+        else:
+            linhas_ordenadas = sorted(enumerate(linhas), key=lambda x: (-int(x[1].get("reimbursement") or 0), x[0]))
+
+        resultados_tmp = []
+        stock_atual = dict(stock)
+        total_restante_global = sum(int(l.get("reimbursement") or 0) for _idx, l in linhas_ordenadas)
+
+        for idx_original, linha in linhas_ordenadas:
             amount = int(linha.get("reimbursement") or 0)
-            resultados.append({
-                "idx": idx,
+            if amount <= 0:
+                combo = {d: 0 for d in denoms}
+                remaining = 0
+            else:
+                target = {}
+                if total_restante_global > 0:
+                    proporcao = amount / total_restante_global
+                    for d in denoms:
+                        target[d] = int(stock_atual.get(d, 0) or 0) * proporcao
+                else:
+                    target = {d: 0 for d in denoms}
+
+                combo = self._combo_dp_proporcional(amount, stock_atual, target, preferir_baixas=preferir_baixas)
+                if combo is None:
+                    # Fallback: fechar o valor continua a ser mais importante
+                    # do que respeitar a proporção ideal.
+                    combo = self._combo_dp_para_valor(amount, stock_atual, preferencia="baixas" if preferir_baixas else "altas")
+
+                if combo is None:
+                    combo = {d: 0 for d in denoms}
+                    remaining = amount
+                else:
+                    remaining = 0
+                    for d in denoms:
+                        stock_atual[d] = int(stock_atual.get(d, 0) or 0) - int(combo.get(d, 0) or 0)
+
+            resultados_tmp.append({
+                "idx_original": idx_original,
                 "linha": linha,
                 "amount": amount,
-                "remaining": amount,
-                "combo": {d: 0 for d in denoms},
+                "remaining": remaining,
+                "combo": combo,
             })
+            total_restante_global -= amount
 
-        stock_atual = dict(stock)
+        falhas = [self._formatar_identificacao(item["linha"]) for item in resultados_tmp if item["remaining"] != 0]
+        resultados_tmp.sort(key=lambda r: r["idx_original"])
+        saida = [(item["linha"], item["combo"]) for item in resultados_tmp]
+        return saida, stock_atual, falhas, resultados_tmp
 
-        # As notas são dadas por rondas completas sempre que possível.
-        for denom in denoms:
-            while stock_atual.get(denom, 0) > 0:
-                elegiveis = [r for r in resultados if r["remaining"] >= denom]
-                if not elegiveis:
-                    break
+    def _calcular_distribuicao_equilibrada(self, linhas, stock):
+        """Distribui notas por percentagem, sem falhar o valor quando possível.
 
-                # Ordem estável e equilibrada: quem tem mais por receber recebe primeiro.
-                elegiveis.sort(key=lambda r: (-r["remaining"], r["idx"]))
+        A distribuição procura que a composição das notas acompanhe o peso de
+        cada reembolso. Exemplo: se uma pessoa recebe cerca do dobro de outra,
+        tenta receber cerca do dobro das notas de 10.000, 5.000, 2.000, etc.
+        A preferência por notas baixas existe, mas é secundária: primeiro fecha
+        o valor, depois equilibra percentagens, depois prefere usar notas baixas.
+        """
+        estrategias = [
+            ("maior", True),
+            ("original", True),
+            ("menor", True),
+            ("maior", False),
+            ("original", False),
+        ]
 
-                houve = False
-                for item in elegiveis:
-                    if stock_atual.get(denom, 0) <= 0:
-                        break
-                    if item["remaining"] < denom:
-                        continue
-                    item["combo"][denom] += 1
-                    item["remaining"] -= denom
-                    stock_atual[denom] -= 1
-                    houve = True
+        melhor = None
+        melhor_score = None
 
-                if not houve:
-                    break
+        for ordem, preferir_baixas in estrategias:
+            saida, stock_final, falhas, resultados_tmp = self._calcular_distribuicao_com_estrategia(
+                linhas,
+                stock,
+                ordem=ordem,
+                preferir_baixas=preferir_baixas,
+            )
+            score = self._avaliar_distribuicao(resultados_tmp, stock, stock_final, falhas)
+            if melhor is None or score < melhor_score:
+                melhor = (saida, stock_final, falhas)
+                melhor_score = score
 
-        falhas = []
-        saida = []
-        for item in resultados:
-            if item["remaining"] != 0:
-                falhas.append(self._formatar_identificacao(item["linha"]))
-            saida.append((item["linha"], item["combo"]))
-
-        return saida, stock_atual, falhas
+        return melhor
 
     def calcular(self):
         stock = self._ler_stock()
