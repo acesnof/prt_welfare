@@ -74,6 +74,31 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
     else:
         paginas = [dias]
 
+    # Em duas folhas, a altura das linhas tem de ser calculada uma unica vez.
+    # A primeira pagina reserva espaco para a identificacao e a segunda nao;
+    # alem disso, as metades podem ter numeros de dias diferentes. Calcular a
+    # altura em cada pagina faria as pessoas deixarem de alinhar lado a lado.
+    row_h_duas_paginas = None
+    if len(paginas) == 2:
+        margem_calculo = 4 * mm
+        usable_w_calculo = page_w - 2 * margem_calculo
+        usable_h_calculo = page_h - 2 * margem_calculo
+        available_rows_h_calculo = usable_h_calculo - 13 * mm - 5.0 * mm - 4.0 * mm - 6.2 * mm
+        n_rows_calculo = max(1, len(rows))
+
+        larguras_celula = []
+        for indice, dias_pagina in enumerate(paginas, start=1):
+            ident_w_calculo = 50 * mm if indice == 1 else 0
+            larguras_celula.append(
+                (usable_w_calculo - ident_w_calculo) / max(1, len(dias_pagina) * 3)
+            )
+
+        row_h_duas_paginas = min(
+            min(larguras_celula),
+            available_rows_h_calculo / n_rows_calculo,
+        )
+        row_h_duas_paginas = max(2.35 * mm, row_h_duas_paginas)
+
     def desenhar_pagina(dias_pagina, indice_pagina, total_paginas):
         c.setLineWidth(0.10)
 
@@ -106,8 +131,11 @@ def gerar_pdf_welfare_individual(caminho_pdf, titulo, periodo, dias, rows, totai
         available_rows_h = usable_h - titulo_h - header_h1 - header_h2 - total_h
 
         # Em 2 páginas as células ficam naturalmente maiores.
-        row_h = min(cell_w, available_rows_h / n_rows)
-        row_h = max(2.35 * mm, row_h)
+        if row_h_duas_paginas is not None:
+            row_h = row_h_duas_paginas
+        else:
+            row_h = min(cell_w, available_rows_h / n_rows)
+            row_h = max(2.35 * mm, row_h)
 
         if len(dias_pagina) <= 7:
             # Impressão de uma semana: aproveitar melhor a folha e tornar o texto mais legível.
